@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PO Scanner · Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* ── Scanner Layout ─────────────────────────────────── */
+    .scanner-layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    /* ── Camera Panel ───────────────────────────────────── */
+    .camera-panel {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .camera-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .camera-title {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .rec-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-3);
+    }
+    .rec-dot.live {
+      background: var(--red);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ── Video Viewport ─────────────────────────────────── */
+    .video-viewport {
+      position: relative;
+      width: 100%;
+      background: #000;
+      /* A4 landscape-ish aspect ratio for PO documents */
+      aspect-ratio: 4/3;
+      overflow: hidden;
+    }
+
+    #camera-feed {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    #capture-canvas {
+      display: none;
+    }
+
+    /* ── Zone Overlay (shows OCR scan zones) ────────────── */
+    .zone-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .scan-zone {
+      position: absolute;
+      border: 1px dashed rgba(56, 139, 253, 0.6);
+      border-radius: 3px;
+      background: rgba(31, 111, 235, 0.05);
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .scan-zone.active {
+      border-color: rgba(56, 139, 253, 1);
+      background: rgba(31, 111, 235, 0.15);
+    }
+
+    .scan-zone.done {
+      border-color: rgba(63, 185, 80, 0.8);
+      background: rgba(63, 185, 80, 0.08);
+    }
+
+    .zone-label {
+      position: absolute;
+      top: -20px;
+      left: 0;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(56, 139, 253, 0.9);
+      background: rgba(0,0,0,0.7);
+      padding: 2px 5px;
+      border-radius: 3px;
+      white-space: nowrap;
+    }
+
+    .scan-zone.done .zone-label { color: rgba(63, 185, 80, 0.9); }
+
+    /* Zone positions — calibrated to a standard PO layout.
+       You'll need to tweak these % values once you test with your actual PO template. */
+    .zone-po-number    { top:3%;  right:2%;  width:22%; height:7%; }
+    .zone-supplier     { top:3%;  left:2%;   width:30%; height:7%; }
+    .zone-items        { top:22%; left:2%;   width:96%; height:45%; }
+
+    /* ── Corner Brackets (framing UI) ──────────────────── */
+    .bracket {
+      position: absolute;
+      width: 24px; height: 24px;
+    }
+
+    .bracket::before,
+    .bracket::after {
+      content: '';
+      position: absolute;
+      background: var(--accent-2);
+    }
+
+    .bracket::before { width: 100%; height: 2px; top: 0; }
+    .bracket::after  { width: 2px; height: 100%; }
+
+    .bracket.tl { top: 8px; left: 8px; }
+    .bracket.tl::after { left: 0; top: 0; }
+
+    .bracket.tr { top: 8px; right: 8px; transform: scaleX(-1); }
+    .bracket.tr::after { left: 0; top: 0; }
+
+    .bracket.bl { bottom: 8px; left: 8px; transform: scaleY(-1); }
+    .bracket.bl::after { left: 0; top: 0; }
+
+    .bracket.br { bottom: 8px; right: 8px; transform: scale(-1); }
+    .bracket.br::after { left: 0; top: 0; }
+
+    /* ── Scan Line Animation ────────────────────────────── */
+    .scan-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-2), transparent);
+      top: 0;
+      display: none;
+    }
+
+    .scan-line.scanning {
+      display: block;
+      animation: scanDown 2s linear infinite;
+    }
+
+    @keyframes scanDown {
+      0%   { top: 0; opacity: 0; }
+      5%   { opacity: 1; }
+      95%  { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+
+    /* ── Crosshair hint (center) ────────────────────────── */
+    .crosshair {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,255,0.2);
+      font-size: 28px;
+      pointer-events: none;
+      display: none;
+    }
+
+    .no-camera-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--text-2);
+      font-size: 14px;
+    }
+
+    .no-camera-msg .icon { font-size: 40px; }
+
+    /* ── Camera Controls ────────────────────────────────── */
+    .camera-controls {
+      padding: 14px 18px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      border-top: 1px solid var(--border);
+    }
+
+    .camera-tip {
+      font-size: 12px;
+      color: var(--text-3);
+      font-family: var(--font-mono);
+      flex: 1;
+    }
+
+    /* ── Capture Toggle: camera vs file upload ──────────── */
+    .input-mode-tabs {
+      display: flex;
+      background: var(--bg-3);
+      border-radius: var(--radius);
+      padding: 3px;
+      gap: 2px;
+      margin-bottom: 14px;
+    }
+
+    .mode-tab {
+      flex: 1;
+      padding: 7px 12px;
+      border: none;
+      background: none;
+      border-radius: 4px;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .mode-tab.active {
+      background: var(--bg-2);
+      color: var(--text);
+      box-shadow: var(--shadow);
+    }
+
+    /* ── Results Panel ──────────────────────────────────── */
+    .results-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .ocr-field {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .ocr-field-header {
+      padding: 8px 12px;
+      background: var(--bg-3);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .ocr-field-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-2);
+    }
+
+    .ocr-field-body {
+      padding: 10px 12px;
+    }
+
+    .ocr-field-body input {
+      width: 100%;
+      background: none;
+      border: none;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+    }
+
+    .ocr-field-body input::placeholder { color: var(--text-3); }
+
+    .ocr-field.highlight-match { border-color: var(--green); }
+    .ocr-field.highlight-mismatch { border-color: var(--red); }
+
+    /* ── Progress Bar for OCR ───────────────────────────── */
+    .ocr-progress-wrap {
+      display: none;
+      padding: 6px 0;
+    }
+
+    .ocr-progress-wrap.visible { display: block; }
+
+    .ocr-progress-bar {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .ocr-progress-fill {
+      height: 100%;
+      background: var(--accent-2);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    .ocr-progress-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-2);
+      margin-top: 5px;
+    }
+
+    /* ── Comparison Table ───────────────────────────────── */
+    .comparison-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+
+    .diff-row-match   { color: var(--green); }
+    .diff-row-mismatch { color: var(--red); }
+    .diff-row-missing  { color: var(--yellow); }
+
+    /* ── Items Table inside OCR results ─────────────────── */
+    .items-area {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .items-area textarea {
+      width: 100%;
+      background: none;
+      border: none;
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text);
+      resize: vertical;
+      min-height: 90px;
+      outline: none;
+    }
+
+    /* ── Mobile adjustments ─────────────────────────────── */
+    @media (max-width: 900px) {
+      .scanner-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .scan-zone { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav class="topnav">
+    <a href="index.html" class="brand">
+      <div class="brand-icon">📋</div>
+      <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+    </a>
+    <nav>
+      <a href="index.html"><span>🏠</span> <span>Home</span></a>
+      <a href="scanner.html" class="active"><span>📷</span> <span>Scanner</span></a>
+      <a href="dashboard.html"><span>📊</span> <span>Dashboard</span></a>
+    </nav>
+  </nav>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toasts"></div>
+
+  <!-- Main -->
+  <div class="container" style="padding-top:28px; padding-bottom:40px;">
+    <div class="page-header" style="padding-top:0">
+      <div class="eyebrow">Feature 1</div>
+      <h1>PO Scanner</h1>
+      <p>Point your camera at a purchase order to auto-extract and verify data against the monitoring file.</p>
+    </div>
+
+    <div class="scanner-layout">
+
+      <!-- ── Left: Camera / Upload ──────────────────────── -->
+      <div>
+        <!-- Input mode toggle -->
+        <div class="input-mode-tabs">
+          <button class="mode-tab active" id="tab-camera" onclick="setMode('camera')">
+            📷 <span>Live Camera</span>
+          </button>
+          <button class="mode-tab" id="tab-upload" onclick="setMode('upload')">
+            📁 <span>Upload Image</span>
+          </button>
+        </div>
+
+        <!-- Camera Panel -->
+        <div class="camera-panel" id="camera-panel">
+          <div class="camera-header">
+            <div class="camera-title">
+              <div class="rec-dot" id="rec-dot"></div>
+              <span id="cam-status">Camera inactive</span>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="switchCamera()" id="switch-btn" title="Switch front/back camera">⟲ Flip</button>
+              <select class="form-select" id="camera-select" style="font-size:12px;padding:5px 8px;width:auto;" title="Select camera device"></select>
+            </div>
+          </div>
+
+          <div class="video-viewport" id="viewport">
+            <!-- The actual video feed -->
+            <video id="camera-feed" autoplay playsinline muted></video>
+
+            <!-- Hidden canvas for frame capture -->
+            <canvas id="capture-canvas"></canvas>
+
+            <!-- Zone overlay -->
+            <div class="zone-overlay" id="zone-overlay">
+              <div class="scan-zone zone-po-number" id="zone-po">
+                <span class="zone-label">PO Number</span>
+              </div>
+              <div class="scan-zone zone-supplier" id="zone-supplier">
+                <span class="zone-label">Supplier</span>
+              </div>
+              <div class="scan-zone zone-items" id="zone-items">
+                <span class="zone-label">Items &amp; Amounts</span>
+              </div>
+            </div>
+
+            <!-- Corner brackets -->
+            <div class="bracket tl"></div>
+            <div class="bracket tr"></div>
+            <div class="bracket bl"></div>
+            <div class="bracket br"></div>
+
+            <!-- Scan animation line -->
+            <div class="scan-line" id="scan-line"></div>
+
+            <!-- Crosshair -->
+            <div class="crosshair" id="crosshair">⊕</div>
+
+            <!-- No camera message (shows before camera starts) -->
+            <div class="no-camera-msg" id="no-camera-msg">
+              <span class="icon">📷</span>
+              <span>Camera not started</span>
+              <button class="btn btn-primary" onclick="startCamera()">Start Camera</button>
+            </div>
+          </div>
+
+          <div class="camera-controls">
+            <button class="btn btn-primary" id="capture-btn" onclick="captureAndScan()" disabled>
+              📸 Capture &amp; Scan
+            </button>
+            <button class="btn btn-secondary" id="stop-btn" onclick="stopCamera()" disabled>
+              ⏹ Stop
+            </button>
+            <span class="camera-tip" id="cam-tip">Align PO within the brackets</span>
+          </div>
+        </div>
+
+        <!-- Upload Panel (hidden by default) -->
+        <div class="camera-panel" id="upload-panel" style="display:none;">
+          <div class="camera-header">
+            <div class="camera-title">📁 Upload PO Image</div>
+          </div>
+          <div style="padding:32px;text-align:center;">
+            <div id="drop-zone"
+              style="border:2px dashed var(--border);border-radius:10px;padding:48px 24px;cursor:pointer;transition:all 0.2s;"
+              ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+              ondragleave="this.style.borderColor='var(--border)'"
+              ondrop="handleDrop(event)">
+              <div style="font-size:36px;margin-bottom:12px;">📄</div>
+              <div style="color:var(--text-2);font-size:14px;margin-bottom:16px;">
+                Drag &amp; drop a PO image here, or click to browse
+              </div>
+              <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+              <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">
+                Browse Files
+              </button>
+            </div>
+            <div id="upload-preview" style="margin-top:16px;display:none;">
+              <img id="preview-img" style="max-width:100%;border-radius:8px;border:1px solid var(--border);" />
+              <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;">
+                <button class="btn btn-primary" onclick="scanUploadedImage()">🔍 Scan This Image</button>
+                <button class="btn btn-secondary" onclick="clearUpload()">✕ Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OCR Progress -->
+        <div class="card mt-4">
+          <div class="card-header">
+            <span class="card-title">OCR Engine</span>
+            <span class="badge badge-grey" id="ocr-engine-badge">Tesseract.js · Ready</span>
+          </div>
+          <div class="ocr-progress-wrap" id="ocr-progress-wrap">
+            <div class="ocr-progress-bar">
+              <div class="ocr-progress-fill" id="ocr-progress-fill"></div>
+            </div>
+            <div class="ocr-progress-label" id="ocr-progress-label">Initializing...</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-3);font-family:var(--font-mono);margin-top:8px;" id="ocr-status-text">
+            Waiting for capture...
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Right: Extracted Fields + Match Results ─────── -->
+      <div class="results-panel">
+
+        <!-- Extracted Fields -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Extracted Data</span>
+            <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="clearFields()">Clear</button>
+          </div>
+
+          <div class="ocr-field" id="field-po">
+            <div class="ocr-field-header">
+              <span class="ocr-field-label">PO Number</span>
+              <span class="badge badge-grey" id="po-conf"></span>
+            </div>
+            <div class="ocr-field-body">
+              <input type="text" id="val-po" placeholder="e.g. PO-2026-001" />
+            </div>
+          </div>
+
+          <div style="height:8px;"></div>
+
+          <div class="ocr-field" id="field-supplier">
+            <div class="ocr-field-header">
+              <span class="ocr-field-label">Supplier Name</span>
+              <span class="badge badge-grey" id="supplier-conf"></span>
+            </div>
+            <div class="ocr-field-body">
+              <input type="text" id="val-supplier" placeholder="e.g. ABC Supply Co." />
+            </div>
+          </div>
+
+          <div style="height:8px;"></div>
+
+          <div class="ocr-field" id="field-items">
+            <div class="ocr-field-header">
+              <span class="ocr-field-label">Items &amp; Amounts (raw)</span>
+            </div>
+            <div class="ocr-field-body" style="padding:0;">
+              <div class="items-area">
+                <textarea id="val-items" placeholder="Item descriptions and amounts will appear here..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div style="height:8px;"></div>
+
+          <!-- Manual fields for adding new row -->
+          <details style="margin-top:4px;">
+            <summary style="font-size:12px;color:var(--text-2);cursor:pointer;padding:4px 0;font-family:var(--font-mono);">
+              ▶ Additional Fields (for new row)
+            </summary>
+            <div style="margin-top:12px;display:grid;gap:10px;">
+              <div>
+                <div class="form-label">Requesting Dept.</div>
+                <input class="form-input" type="text" id="val-dept" placeholder="e.g. IT" />
+              </div>
+              <div>
+                <div class="form-label">PO Date</div>
+                <input class="form-input" type="date" id="val-po-date" />
+              </div>
+              <div>
+                <div class="form-label">Month Sheet</div>
+                <select class="form-select" id="val-month">
+                  <option value="JAN">January</option>
+                  <option value="FEB">February</option>
+                  <option value="MAR">March</option>
+                  <option value="APR">April</option>
+                  <option value="MAY">May</option>
+                  <option value="JUN">June</option>
+                  <option value="JUL">July</option>
+                  <option value="AUG">August</option>
+                  <option value="SEP">September</option>
+                  <option value="OCT">October</option>
+                  <option value="NOV">November</option>
+                  <option value="DEC">December</option>
+                </select>
+              </div>
+            </div>
+          </details>
+
+          <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary w-full" onclick="lookupPO()">🔍 Check in Excel</button>
+          </div>
+        </div>
+
+        <!-- Match Result -->
+        <div class="card comparison-card" id="result-card" style="display:none;">
+          <div class="card-header">
+            <span class="card-title">Comparison Result</span>
+            <span class="badge" id="result-badge"></span>
+          </div>
+          <div id="result-body"></div>
+          <div id="result-actions" style="padding:12px 0 0;display:flex;gap:8px;flex-wrap:wrap;"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Add New Row Modal ─────────────────────────────────── -->
+  <div class="modal-overlay" id="add-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>➕ Add New PO Row</h2>
+        <button class="modal-close" onclick="closeModal('add-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-2);font-size:13px;margin-bottom:16px;">
+          This PO was not found in the monitoring file. Review the pre-filled data below and click Save to add it.
+        </p>
+        <div id="add-form-fields" style="display:grid;gap:10px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('add-modal')">Cancel</button>
+        <button class="btn btn-success" onclick="saveNewRow()">💾 Save to Excel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tesseract.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="scanner.js"></script>
+</body>
+</html>
