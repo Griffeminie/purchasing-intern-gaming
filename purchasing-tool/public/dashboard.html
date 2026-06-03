@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard · Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+    }
+
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-2);
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .stat-sub {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 3px;
+      font-family: var(--font-mono);
+    }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .chart-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+    }
+
+    .chart-title {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-2);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 220px;
+    }
+
+    .chart-container.tall { height: 280px; }
+    .chart-container.short { height: 160px; }
+
+    .full-width { grid-column: 1 / -1; }
+
+    .chart-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-3);
+      font-size: 13px;
+      font-family: var(--font-mono);
+    }
+
+    .month-filter {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .month-btn {
+      padding: 4px 10px;
+      border-radius: 99px;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .month-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .savings-table {
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 768px) {
+      .stats-row { grid-template-columns: 1fr 1fr; }
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 480px) {
+      .stats-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav class="topnav">
+    <a href="index.html" class="brand">
+      <div class="brand-icon">📋</div>
+      <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+    </a>
+    <nav>
+      <a href="index.html"><span>🏠</span> <span>Home</span></a>
+      <a href="scanner.html"><span>📷</span> <span>Scanner</span></a>
+      <a href="dashboard.html" class="active"><span>📊</span> <span>Dashboard</span></a>
+    </nav>
+  </nav>
+
+  <div class="toast-container" id="toasts"></div>
+
+  <div class="container" style="padding-top:28px;padding-bottom:40px;">
+    <div class="page-header" style="padding-top:0;">
+      <div class="eyebrow">Feature 2</div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1>Monitoring Dashboard</h1>
+          <p>Live visualization from monitoring.xlsx — Year 2026</p>
+        </div>
+        <button class="btn btn-secondary" onclick="loadDashboard()">🔄 Refresh</button>
+      </div>
+    </div>
+
+    <!-- KPI Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Spending</div>
+        <div class="stat-value" id="kpi-total">—</div>
+        <div class="stat-sub">YTD</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total POs</div>
+        <div class="stat-value" id="kpi-po-count">—</div>
+        <div class="stat-sub">All months</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Cost Savings</div>
+        <div class="stat-value" id="kpi-savings" style="color:var(--green)">—</div>
+        <div class="stat-sub">vs original price</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Suppliers</div>
+        <div class="stat-value" id="kpi-suppliers">—</div>
+        <div class="stat-sub">unique</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+
+      <!-- Monthly Spending Trend (full width) -->
+      <div class="chart-card full-width">
+        <div class="chart-title">
+          <span>📈 Monthly Spending Trend</span>
+          <span style="font-size:10px;color:var(--text-3);">PHP · 2026</span>
+        </div>
+        <div class="chart-container tall">
+          <div class="chart-loading" id="loading-monthly">Loading...</div>
+          <canvas id="chart-monthly"></canvas>
+        </div>
+      </div>
+
+      <!-- Supplier Breakdown -->
+      <div class="chart-card">
+        <div class="chart-title">🏢 Supplier Breakdown</div>
+        <div class="chart-container">
+          <div class="chart-loading" id="loading-supplier">Loading...</div>
+          <canvas id="chart-supplier"></canvas>
+        </div>
+      </div>
+
+      <!-- PO Status -->
+      <div class="chart-card">
+        <div class="chart-title">📋 PO Status Distribution</div>
+        <div class="chart-container">
+          <div class="chart-loading" id="loading-status">Loading...</div>
+          <canvas id="chart-status"></canvas>
+        </div>
+      </div>
+
+      <!-- Department Spending -->
+      <div class="chart-card full-width">
+        <div class="chart-title">🏛️ Spending by Department</div>
+        <div class="chart-container">
+          <div class="chart-loading" id="loading-dept">Loading...</div>
+          <canvas id="chart-dept"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Cost Savings Table -->
+    <div class="chart-card">
+      <div class="chart-title">
+        <span>💰 Cost Savings by Supplier</span>
+        <span id="kpi-savings-pct" style="font-size:10px;color:var(--green);"></span>
+      </div>
+      <div class="savings-table">
+        <div class="table-wrap" style="border:none;">
+          <table id="savings-table">
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th class="text-right">Original Price</th>
+                <th class="text-right">Actual Amount</th>
+                <th class="text-right">Savings</th>
+                <th class="text-right">Savings %</th>
+              </tr>
+            </thead>
+            <tbody id="savings-body">
+              <tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:24px;">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="charts.js"></script>
+</body>
+</html>

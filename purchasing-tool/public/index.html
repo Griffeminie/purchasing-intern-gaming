@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .home-body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hero {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 24px;
+    }
+
+    .hero-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-2);
+      background: #0a1f3a;
+      border: 1px solid #1a3a5a;
+      padding: 4px 12px;
+      border-radius: 99px;
+      margin-bottom: 28px;
+    }
+
+    .hero h1 {
+      font-size: clamp(28px, 5vw, 44px);
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      max-width: 560px;
+      line-height: 1.2;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      color: var(--accent-2);
+    }
+
+    .hero-sub {
+      color: var(--text-2);
+      font-size: 15px;
+      text-align: center;
+      max-width: 420px;
+      margin-top: 14px;
+      line-height: 1.6;
+    }
+
+    .action-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 48px;
+      width: 100%;
+      max-width: 540px;
+    }
+
+    .action-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 24px;
+      text-decoration: none;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .action-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.25s;
+    }
+
+    .action-card:hover {
+      border-color: var(--accent);
+      background: var(--bg-3);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 0 0 1px var(--accent);
+    }
+
+    .action-card:hover::before { transform: scaleX(1); }
+
+    .action-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+
+    .action-icon.blue { background: #0a1f3a; }
+    .action-icon.green { background: #0a2010; }
+
+    .action-card h2 {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .action-card p {
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+
+    .action-card .arrow {
+      margin-top: auto;
+      font-size: 18px;
+      color: var(--text-3);
+      transition: color 0.2s, transform 0.2s;
+    }
+
+    .action-card:hover .arrow {
+      color: var(--accent-2);
+      transform: translateX(4px);
+    }
+
+    .status-bar {
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-3);
+      font-family: var(--font-mono);
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text-3);
+      margin-right: 6px;
+    }
+
+    .status-dot.online { background: var(--green); box-shadow: 0 0 0 3px #1a3a1e; }
+
+    @media (max-width: 480px) {
+      .action-grid { grid-template-columns: 1fr; max-width: 320px; }
+    }
+  </style>
+</head>
+<body class="home-body">
+
+  <!-- Nav -->
+  <nav class="topnav">
+    <a href="index.html" class="brand">
+      <div class="brand-icon">📋</div>
+      <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+    </a>
+    <nav>
+      <a href="index.html" class="active">
+        <span>🏠</span> <span>Home</span>
+      </a>
+      <a href="scanner.html">
+        <span>📷</span> <span>Scanner</span>
+      </a>
+      <a href="dashboard.html">
+        <span>📊</span> <span>Dashboard</span>
+      </a>
+    </nav>
+  </nav>
+
+  <!-- Hero -->
+  <main class="hero">
+    <div class="hero-badge">Purchasing Department · IT Intern Project</div>
+    <h1>PO Monitoring <em>Automated</em></h1>
+    <p class="hero-sub">
+      Scan physical purchase orders with your phone camera — auto-extract data,
+      detect discrepancies, and visualize spending in real time.
+    </p>
+
+    <div class="action-grid">
+      <a href="scanner.html" class="action-card">
+        <div class="action-icon blue">📷</div>
+        <h2>PO Scanner</h2>
+        <p>Scan a physical PO, auto-extract fields, and check against the monitoring file.</p>
+        <span class="arrow">→</span>
+      </a>
+
+      <a href="dashboard.html" class="action-card">
+        <div class="action-icon green">📊</div>
+        <h2>Dashboard</h2>
+        <p>Visualize monthly spending, supplier breakdown, cost savings, and PO status.</p>
+        <span class="arrow">→</span>
+      </a>
+    </div>
+  </main>
+
+  <!-- Status Bar -->
+  <footer class="status-bar">
+    <div>
+      <span class="status-dot online"></span>
+      <span id="server-status">Connecting to server...</span>
+    </div>
+    <div id="excel-info">monitoring.xlsx</div>
+  </footer>
+
+  <script>
+    // Check server connectivity
+    fetch('/api/sheets')
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('server-status').textContent = 'Server online';
+        document.querySelector('.status-dot').classList.add('online');
+        document.getElementById('excel-info').textContent =
+          `monitoring.xlsx · ${data.sheets.length} sheets`;
+      })
+      .catch(() => {
+        document.getElementById('server-status').textContent = 'Server offline — run: node server.js';
+        document.querySelector('.status-dot').style.background = 'var(--red)';
+      });
+  </script>
+</body>
+</html>
