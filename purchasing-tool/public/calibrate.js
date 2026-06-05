@@ -393,6 +393,19 @@ function toast(msg, type = "info", duration = 3200) {
 document.addEventListener("DOMContentLoaded", () => {
   updateSidebar();
 
-  // If no image is loaded, zones still render (just no background)
-  // renderAllZones() is called after image loads via onImageLoad()
+  // Check if scanner.html passed an image via sessionStorage
+  const LAST_IMAGE_KEY = "purchasing-tool-last-scan-image";
+  try {
+    const saved = sessionStorage.getItem(LAST_IMAGE_KEY);
+    if (saved) {
+      const img = document.getElementById("ref-image");
+      img.src = saved;
+      img.style.display = "block";
+      document.getElementById("img-placeholder").style.display = "none";
+      // Don't remove it — keeps working if user refreshes calibrate page
+      toast("Image loaded from scanner. Adjust zones and save.", "info", 4000);
+    }
+  } catch(e) {
+    console.warn("Could not load scanner image:", e);
+  }
 });
