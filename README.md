@@ -8,7 +8,6 @@ Download from nodejs.org — lets you run a local server so the app is accessibl
 Live Server — for quick testing during development
 Prettier — code formatting
 
-/*
 ===========================================
 PURCHASING MONITORING SYSTEM - SETUP GUIDE
 ===========================================
