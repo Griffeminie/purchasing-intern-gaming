@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard · Purchasing Tool</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
     .stats-row {
       display: grid;
@@ -18,6 +19,16 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
     }
 
     .stat-label {
@@ -26,8 +37,9 @@
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--text-2);
-      margin-bottom: 6px;
     }
+
+    .stat-icon { color: var(--text-3); }
 
     .stat-value {
       font-size: 22px;
@@ -39,7 +51,6 @@
     .stat-sub {
       font-size: 11px;
       color: var(--text-3);
-      margin-top: 3px;
       font-family: var(--font-mono);
     }
 
@@ -66,65 +77,28 @@
       margin-bottom: 14px;
       display: flex;
       align-items: center;
+      gap: 7px;
       justify-content: space-between;
     }
 
-    .chart-container {
-      position: relative;
-      height: 220px;
-    }
+    .chart-title-left { display: flex; align-items: center; gap: 7px; }
 
+    .chart-container { position: relative; height: 220px; }
     .chart-container.tall { height: 280px; }
-    .chart-container.short { height: 160px; }
-
     .full-width { grid-column: 1 / -1; }
 
     .chart-loading {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-3);
-      font-size: 13px;
-      font-family: var(--font-mono);
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-3); font-size: 13px; font-family: var(--font-mono);
     }
 
-    .month-filter {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
-
-    .month-btn {
-      padding: 4px 10px;
-      border-radius: 99px;
-      background: var(--bg-3);
-      border: 1px solid var(--border);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-2);
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-
-    .month-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
-
-    .savings-table {
-      max-height: 280px;
-      overflow-y: auto;
-    }
+    .savings-table { max-height: 300px; overflow-y: auto; }
 
     @media (max-width: 768px) {
       .stats-row { grid-template-columns: 1fr 1fr; }
       .charts-grid { grid-template-columns: 1fr; }
     }
-
     @media (max-width: 480px) {
       .stats-row { grid-template-columns: 1fr; }
     }
@@ -132,18 +106,34 @@
 </head>
 <body>
 
-  <!-- Nav -->
   <nav class="topnav">
     <a href="index.html" class="brand">
-      <div class="brand-icon">📋</div>
+      <div class="brand-icon">
+        <i data-lucide="clipboard-list" style="width:16px;height:16px;color:#fff;"></i>
+      </div>
       <span class="brand-text">PURCHASE<span>/TOOL</span></span>
     </a>
-    <nav>
-      <a href="index.html"><span>🏠</span> <span>Home</span></a>
-      <a href="scanner.html"><span>📷</span> <span>Scanner</span></a>
-      <a href="dashboard.html" class="active"><span>📊</span> <span>Dashboard</span></a>
-    </nav>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <nav>
+        <a href="index.html">
+          <i data-lucide="home" style="width:14px;height:14px;"></i> <span>Home</span>
+        </a>
+        <a href="scanner.html">
+          <i data-lucide="scan" style="width:14px;height:14px;"></i> <span>Scanner</span>
+        </a>
+        <a href="dashboard.html" class="active">
+          <i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> <span>Dashboard</span>
+        </a>
+        <a href="calibrate.html">
+          <i data-lucide="move" style="width:14px;height:14px;"></i><span>Calibrate</span>
+        </a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode">
+        <i data-lucide="moon" style="width:16px;height:16px;" id="theme-icon"></i>
+      </button>
+    </div>
   </nav>
+  <script src="theme.js"></script>
 
   <div class="toast-container" id="toasts"></div>
 
@@ -155,41 +145,56 @@
           <h1>Monitoring Dashboard</h1>
           <p>Live visualization from monitoring.xlsx — Year 2026</p>
         </div>
-        <button class="btn btn-secondary" onclick="loadDashboard()">🔄 Refresh</button>
+        <button class="btn btn-secondary" onclick="loadDashboard()" style="display:flex;align-items:center;gap:7px;">
+          <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Refresh
+        </button>
       </div>
     </div>
 
-    <!-- KPI Stats Row -->
+    <!-- KPI Stats -->
     <div class="stats-row">
       <div class="stat-card">
-        <div class="stat-label">Total Spending</div>
+        <div class="stat-header">
+          <span class="stat-label">Total Spending</span>
+          <i data-lucide="philippine-peso" class="stat-icon" style="width:15px;height:15px;"></i>
+        </div>
         <div class="stat-value" id="kpi-total">—</div>
-        <div class="stat-sub">YTD</div>
+        <div class="stat-sub">Year to date</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Total POs</div>
+        <div class="stat-header">
+          <span class="stat-label">Total POs</span>
+          <i data-lucide="file-text" class="stat-icon" style="width:15px;height:15px;"></i>
+        </div>
         <div class="stat-value" id="kpi-po-count">—</div>
         <div class="stat-sub">All months</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Cost Savings</div>
-        <div class="stat-value" id="kpi-savings" style="color:var(--green)">—</div>
+        <div class="stat-header">
+          <span class="stat-label">Cost Savings</span>
+          <i data-lucide="trending-down" class="stat-icon" style="width:15px;height:15px;color:var(--green);"></i>
+        </div>
+        <div class="stat-value" id="kpi-savings" style="color:var(--green);">—</div>
         <div class="stat-sub">vs original price</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Active Suppliers</div>
+        <div class="stat-header">
+          <span class="stat-label">Suppliers</span>
+          <i data-lucide="building-2" class="stat-icon" style="width:15px;height:15px;"></i>
+        </div>
         <div class="stat-value" id="kpi-suppliers">—</div>
-        <div class="stat-sub">unique</div>
+        <div class="stat-sub">Active unique</div>
       </div>
     </div>
 
     <!-- Charts -->
     <div class="charts-grid">
-
-      <!-- Monthly Spending Trend (full width) -->
       <div class="chart-card full-width">
         <div class="chart-title">
-          <span>📈 Monthly Spending Trend</span>
+          <div class="chart-title-left">
+            <i data-lucide="trending-up" style="width:14px;height:14px;"></i>
+            Monthly Spending Trend
+          </div>
           <span style="font-size:10px;color:var(--text-3);">PHP · 2026</span>
         </div>
         <div class="chart-container tall">
@@ -198,39 +203,53 @@
         </div>
       </div>
 
-      <!-- Supplier Breakdown -->
       <div class="chart-card">
-        <div class="chart-title">🏢 Supplier Breakdown</div>
+        <div class="chart-title">
+          <div class="chart-title-left">
+            <i data-lucide="building-2" style="width:14px;height:14px;"></i>
+            Supplier Breakdown
+          </div>
+        </div>
         <div class="chart-container">
           <div class="chart-loading" id="loading-supplier">Loading...</div>
           <canvas id="chart-supplier"></canvas>
         </div>
       </div>
 
-      <!-- PO Status -->
       <div class="chart-card">
-        <div class="chart-title">📋 PO Status Distribution</div>
+        <div class="chart-title">
+          <div class="chart-title-left">
+            <i data-lucide="pie-chart" style="width:14px;height:14px;"></i>
+            PO Status Distribution
+          </div>
+        </div>
         <div class="chart-container">
           <div class="chart-loading" id="loading-status">Loading...</div>
           <canvas id="chart-status"></canvas>
         </div>
       </div>
 
-      <!-- Department Spending -->
       <div class="chart-card full-width">
-        <div class="chart-title">🏛️ Spending by Department</div>
+        <div class="chart-title">
+          <div class="chart-title-left">
+            <i data-lucide="landmark" style="width:14px;height:14px;"></i>
+            Spending by Department
+          </div>
+        </div>
         <div class="chart-container">
           <div class="chart-loading" id="loading-dept">Loading...</div>
           <canvas id="chart-dept"></canvas>
         </div>
       </div>
-
     </div>
 
-    <!-- Cost Savings Table -->
+    <!-- Savings Table -->
     <div class="chart-card">
       <div class="chart-title">
-        <span>💰 Cost Savings by Supplier</span>
+        <div class="chart-title-left">
+          <i data-lucide="piggy-bank" style="width:14px;height:14px;"></i>
+          Cost Savings by Supplier
+        </div>
         <span id="kpi-savings-pct" style="font-size:10px;color:var(--green);"></span>
       </div>
       <div class="savings-table">
@@ -256,5 +275,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="charts.js"></script>
+  <script>lucide.createIcons();</script>
 </body>
 </html>
