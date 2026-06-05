@@ -9,13 +9,24 @@
 "use strict";
 
 // ─── Zone Definitions ───────────────────────────────────────────────────────
-// Each zone maps to a region of the captured image (0–1 relative coordinates).
-// These correspond to the CSS .zone-* positions in scanner.html.
-const ZONES = {
+// Default zones — overridden by calibration data saved in localStorage.
+const DEFAULT_ZONES = {
   poNumber: { top: 0.03, left: 0.76, width: 0.22, height: 0.07 },
   supplier: { top: 0.03, left: 0.02, width: 0.30, height: 0.07 },
   items:    { top: 0.22, left: 0.02, width: 0.96, height: 0.45 },
 };
+
+const ZONES_KEY = "purchasing-tool-zones";
+
+function loadZones() {
+  try {
+    const saved = localStorage.getItem(ZONES_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch(e) {}
+  return DEFAULT_ZONES;
+}
+
+let ZONES = loadZones();
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let stream = null;
@@ -32,11 +43,10 @@ const ctx       = canvas.getContext("2d");
 
 // ─── Toast Notifications ────────────────────────────────────────────────────
 function toast(msg, type = "info", duration = 3500) {
-  const icons = { success: "✅", error: "❌", warn: "⚠️", info: "ℹ️" };
   const container = document.getElementById("toasts");
   const el = document.createElement("div");
   el.className = `toast toast-${type}`;
-  el.innerHTML = `<span class="toast-icon">${icons[type]}</span><span>${msg}</span>`;
+  el.innerHTML = `<span>${msg}</span>`;
   container.appendChild(el);
   setTimeout(() => el.remove(), duration);
 }

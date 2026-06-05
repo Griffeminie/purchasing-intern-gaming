@@ -5,7 +5,7 @@
 
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 
-/* ── Variables ─────────────────────────────────────────────── */
+/* ── Variables — Dark Mode (default) ───────────────────────── */
 :root {
   --bg:         #0d1117;
   --bg-2:       #161b22;
@@ -29,6 +29,66 @@
   --font-mono:  'IBM Plex Mono', monospace;
   --shadow:     0 1px 3px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.3);
   --shadow-lg:  0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* ── Variables — Light Mode ─────────────────────────────────── */
+body.light {
+  --bg:         #f6f8fa;
+  --bg-2:       #ffffff;
+  --bg-3:       #eaeef2;
+  --border:     #d0d7de;
+  --border-2:   #e1e8ef;
+  --text:       #1f2328;
+  --text-2:     #636c76;
+  --text-3:     #9ca3af;
+  --accent:     #0969da;
+  --accent-2:   #1a7fe8;
+  --accent-glow:rgba(9, 105, 218, 0.2);
+  --green:      #1a7f37;
+  --red:        #cf222e;
+  --yellow:     #9a6700;
+  --orange:     #bc4c00;
+  --purple:     #6e40c9;
+  --shadow:     0 1px 3px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg:  0 8px 32px rgba(0,0,0,0.12);
+}
+
+/* badge overrides for light mode — keep them readable */
+body.light .badge-green  { background: #d1f7d6; color: #1a7f37; border-color: #a7e9b2; }
+body.light .badge-red    { background: #ffd7d5; color: #cf222e; border-color: #ffb3ae; }
+body.light .badge-yellow { background: #fff3cd; color: #9a6700; border-color: #ffe69c; }
+body.light .badge-blue   { background: #ddf4ff; color: #0969da; border-color: #aed9fb; }
+body.light .badge-grey   { background: #eaeef2; color: #636c76; border-color: #d0d7de; }
+
+/* ── Theme Toggle Button ────────────────────────────────────── */
+.theme-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* smooth theme transition */
+body, body * {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 /* ── Reset ─────────────────────────────────────────────────── */
