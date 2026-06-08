@@ -7,24 +7,25 @@
   <link rel="stylesheet" href="style.css" />
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
-    /* ── Layout ────────────────────────────────────────────── */
-    .calibrate-layout {
+    .cal-layout {
       display: grid;
-      grid-template-columns: 1fr 300px;
+      grid-template-columns: 1fr 320px;
       gap: 20px;
       align-items: start;
     }
 
-    /* ── Canvas Workspace ──────────────────────────────────── */
+    /* ── Workspace ─────────────────────────────────────────── */
     .workspace-card {
       background: var(--bg-2);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       overflow: hidden;
+      position: sticky;
+      top: 70px;
     }
 
     .workspace-header {
-      padding: 13px 18px;
+      padding: 12px 16px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
@@ -44,17 +45,17 @@
       gap: 7px;
     }
 
+    /* ── Canvas wrap ───────────────────────────────────────── */
     .canvas-wrap {
       position: relative;
       width: 100%;
       background: #111;
       overflow: hidden;
-      cursor: crosshair;
-      /* height set dynamically by JS */
-      min-height: 300px;
+      cursor: default;
+      max-height: 72vh;
+      overflow-y: auto;
     }
-
-    body.light .canvas-wrap { background: #e0e0e0; }
+    body.light .canvas-wrap { background: #ccc; }
 
     #ref-image {
       display: block;
@@ -64,9 +65,8 @@
       user-select: none;
     }
 
-    .no-image-placeholder {
-      position: absolute;
-      inset: 0;
+    .no-img-placeholder {
+      min-height: 360px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -74,171 +74,229 @@
       gap: 12px;
       color: var(--text-3);
       font-size: 13px;
-      pointer-events: none;
     }
 
-    /* ── Draggable Zone Boxes ──────────────────────────────── */
+    /* ── Zone boxes ────────────────────────────────────────── */
     .zone-box {
       position: absolute;
-      border: 2px solid;
+      border: 1.5px solid;
       border-radius: 3px;
-      cursor: move;
       box-sizing: border-box;
+      cursor: move;
       transition: box-shadow 0.15s;
     }
 
-    .zone-box:hover    { box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
-    .zone-box.selected { box-shadow: 0 0 0 2px rgba(255,255,255,0.4); }
+    .zone-box:hover   { box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
+    .zone-box.selected { box-shadow: 0 0 0 2px rgba(255,255,255,0.5) !important; }
 
-    /* Each zone has its own color */
-    .zone-box[data-zone="poNumber"] {
-      border-color: #388bfd;
-      background: rgba(31, 111, 235, 0.12);
-    }
-    .zone-box[data-zone="supplier"] {
-      border-color: #3fb950;
-      background: rgba(63, 185, 80, 0.12);
-    }
-    .zone-box[data-zone="items"] {
-      border-color: #d29922;
-      background: rgba(210, 153, 34, 0.10);
-    }
-
-    .zone-box-label {
+    .zone-label {
       position: absolute;
-      top: 3px;
-      left: 5px;
+      top: -18px; left: 0;
       font-family: var(--font-mono);
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       letter-spacing: 0.07em;
-      padding: 2px 5px;
-      border-radius: 3px;
-      background: rgba(0,0,0,0.55);
       color: #fff;
+      background: rgba(0,0,0,0.65);
+      padding: 1px 4px;
+      border-radius: 2px;
       white-space: nowrap;
       pointer-events: none;
       user-select: none;
     }
 
-    body.light .zone-box-label { background: rgba(0,0,0,0.4); }
-
-    /* Resize handles — 8 corners/edges */
-    .resize-handle {
+    /* Resize handles */
+    .rh {
       position: absolute;
-      width: 10px;
-      height: 10px;
+      width: 9px; height: 9px;
       background: #fff;
-      border: 1px solid rgba(0,0,0,0.3);
+      border: 1px solid rgba(0,0,0,0.25);
       border-radius: 2px;
       z-index: 10;
     }
+    .rh-nw{top:-4px;left:-4px;cursor:nw-resize}
+    .rh-n {top:-4px;left:calc(50% - 4px);cursor:n-resize}
+    .rh-ne{top:-4px;right:-4px;cursor:ne-resize}
+    .rh-e {top:calc(50% - 4px);right:-4px;cursor:e-resize}
+    .rh-se{bottom:-4px;right:-4px;cursor:se-resize}
+    .rh-s {bottom:-4px;left:calc(50% - 4px);cursor:s-resize}
+    .rh-sw{bottom:-4px;left:-4px;cursor:sw-resize}
+    .rh-w {top:calc(50% - 4px);left:-4px;cursor:w-resize}
 
-    .resize-handle.nw { top: -5px;  left: -5px;  cursor: nw-resize; }
-    .resize-handle.n  { top: -5px;  left: calc(50% - 5px); cursor: n-resize; }
-    .resize-handle.ne { top: -5px;  right: -5px; cursor: ne-resize; }
-    .resize-handle.e  { top: calc(50% - 5px); right: -5px; cursor: e-resize; }
-    .resize-handle.se { bottom: -5px; right: -5px; cursor: se-resize; }
-    .resize-handle.s  { bottom: -5px; left: calc(50% - 5px); cursor: s-resize; }
-    .resize-handle.sw { bottom: -5px; left: -5px;  cursor: sw-resize; }
-    .resize-handle.w  { top: calc(50% - 5px); left: -5px; cursor: w-resize; }
-
-    /* ── Sidebar panels ────────────────────────────────────── */
-    .sidebar { display: flex; flex-direction: column; gap: 14px; }
-
-    .zone-list-item {
+    /* ── Toolbar ───────────────────────────────────────────── */
+    .workspace-toolbar {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      border-radius: var(--radius);
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.15s;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar-hint {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-3);
+      font-family: var(--font-mono);
     }
 
-    .zone-list-item:hover { background: var(--bg-3); }
-    .zone-list-item.active { background: var(--bg-3); border-color: var(--border); }
+    /* ── Sidebar ───────────────────────────────────────────── */
+    .sidebar { display: flex; flex-direction: column; gap: 12px; }
 
-    .zone-color-dot {
-      width: 10px; height: 10px;
+    /* Zone group (collapsible section) */
+    .zone-group {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .zone-group-header {
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      background: var(--bg-3);
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .zone-group-header:hover { background: var(--border); }
+
+    .group-dot {
+      width: 8px; height: 8px;
       border-radius: 2px;
       flex-shrink: 0;
     }
 
-    .zone-list-label {
-      font-size: 13px;
+    .zone-group-body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Individual zone row */
+    .zone-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border-bottom: 1px solid var(--border-2);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .zone-row:last-child { border-bottom: none; }
+    .zone-row:hover { background: var(--bg-3); }
+    .zone-row.active { background: var(--bg-3); }
+
+    .zone-row-dot {
+      width: 7px; height: 7px;
+      border-radius: 2px;
+      flex-shrink: 0;
+      opacity: 0.8;
+    }
+
+    .zone-row-label {
+      font-size: 12px;
       font-weight: 500;
       flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .zone-list-coords {
+    .zone-row-shortcut {
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 9px;
       color: var(--text-3);
-      line-height: 1.5;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 3px;
     }
 
-    /* ── Coordinate inputs ─────────────────────────────────── */
-    .coord-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
+    /* Extracted value field */
+    .zone-value-wrap {
+      padding: 0 14px 8px;
+      display: none;
     }
+    .zone-row.active + .zone-value-wrap { display: block; }
 
-    .coord-input-wrap { display: flex; flex-direction: column; gap: 4px; }
-    .coord-label {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--text-3);
-    }
-    .coord-input {
+    .zone-value-input {
       width: 100%;
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 6px 8px;
+      padding: 6px 9px;
       font-family: var(--font-mono);
       font-size: 12px;
       color: var(--text);
       outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .coord-input:focus {
+    .zone-value-input:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-glow);
     }
+
+    /* ── Coord mini-editor ─────────────────────────────────── */
+    .coord-editor {
+      display: none;
+      padding: 8px 14px 10px;
+      gap: 6px;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+    }
+    .zone-row.active ~ .coord-editor { display: grid; }
+
+    .coord-wrap { display: flex; flex-direction: column; gap: 3px; }
+    .coord-lbl  { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+    .coord-inp  {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text);
+      outline: none;
+    }
+    .coord-inp:focus { border-color: var(--accent); }
 
     /* ── Info box ──────────────────────────────────────────── */
     .info-box {
       background: #0a1f3a;
       border: 1px solid #1a3a5a;
       border-radius: var(--radius);
-      padding: 12px;
+      padding: 10px 12px;
       font-size: 12px;
       color: var(--accent-2);
       line-height: 1.6;
     }
     body.light .info-box { background: #ddf4ff; border-color: #aed9fb; }
 
-    .zone-color-po       { background: #388bfd; }
-    .zone-color-supplier { background: #3fb950; }
-    .zone-color-items    { background: #d29922; }
-
-    /* ── Divider ───────────────────────────────────────────── */
-    .sidebar-section-title {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+    /* ── Visibility toggle row ─────────────────────────────── */
+    .vis-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      font-size: 11px;
       color: var(--text-3);
-      margin-bottom: 8px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      user-select: none;
+      background: var(--bg-3);
+      border-top: 1px solid var(--border);
     }
+    .vis-toggle:hover { color: var(--text-2); }
 
-    @media (max-width: 900px) {
-      .calibrate-layout { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 960px) { .cal-layout { grid-template-columns: 1fr; } .workspace-card { position: static; } }
   </style>
 </head>
 <body>
@@ -266,127 +324,76 @@
 
   <div class="toast-container" id="toasts"></div>
 
-  <div class="container" style="padding-top:28px;padding-bottom:40px;">
+  <div class="container" style="padding-top:28px;padding-bottom:60px;">
     <div class="page-header" style="padding-top:0;">
       <div class="eyebrow">Zone Calibration</div>
       <h1>Scanner Calibration</h1>
-      <p>Upload a sample PO image, then drag and resize the colored boxes to match where each field appears on your document.</p>
+      <p>Upload a sample PO, drag each colored box onto the matching field, then save. These zones apply to all future scans.</p>
     </div>
 
-    <div class="calibrate-layout">
+    <div class="cal-layout">
 
-      <!-- ── Left: Canvas workspace ─────────────────────── -->
-      <div>
-        <div class="workspace-card">
-          <div class="workspace-header">
-            <div class="workspace-title">
-              <i data-lucide="image" style="width:14px;height:14px;"></i>
-              Reference Image
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <input type="file" id="ref-file-input" accept="image/*" style="display:none" onchange="loadRefImage(event)">
-              <button class="btn btn-secondary" onclick="document.getElementById('ref-file-input').click()" style="display:flex;align-items:center;gap:6px;font-size:12px;">
-                <i data-lucide="upload" style="width:13px;height:13px;"></i> Load PO Image
-              </button>
-              <button class="btn btn-secondary" onclick="resetZones()" style="display:flex;align-items:center;gap:6px;font-size:12px;" title="Reset to defaults">
-                <i data-lucide="rotate-ccw" style="width:13px;height:13px;"></i> Reset
-              </button>
-            </div>
+      <!-- ── Left: Canvas ──────────────────────────────────── -->
+      <div class="workspace-card">
+        <div class="workspace-header">
+          <div class="workspace-title">
+            <i data-lucide="image" style="width:13px;height:13px;"></i>
+            Reference Image
           </div>
-
-          <div class="canvas-wrap" id="canvas-wrap">
-            <!-- Reference image rendered here -->
-            <img id="ref-image" src="" alt="" style="display:none;" onload="onImageLoad()" />
-
-            <!-- Zone boxes injected by JS -->
-
-            <!-- Placeholder shown before image loads -->
-            <div class="no-image-placeholder" id="img-placeholder">
-              <i data-lucide="image-plus" style="width:48px;height:48px;opacity:0.3;"></i>
-              <span>Load a PO photo to start calibrating</span>
-              <button class="btn btn-primary" onclick="document.getElementById('ref-file-input').click()" style="display:flex;align-items:center;gap:6px;margin-top:4px;">
-                <i data-lucide="upload" style="width:14px;height:14px;"></i> Upload Reference Image
-              </button>
-            </div>
+          <div style="display:flex;gap:7px;">
+            <input type="file" id="ref-file-input" accept="image/*" style="display:none" onchange="loadRefImage(event)">
+            <button class="btn btn-secondary" onclick="document.getElementById('ref-file-input').click()" style="font-size:12px;display:flex;align-items:center;gap:5px;">
+              <i data-lucide="upload" style="width:12px;height:12px;"></i> Load PO Image
+            </button>
+            <button class="btn btn-secondary" onclick="resetZones()" style="font-size:12px;display:flex;align-items:center;gap:5px;" title="Reset to defaults">
+              <i data-lucide="rotate-ccw" style="width:12px;height:12px;"></i> Reset
+            </button>
           </div>
+        </div>
 
-          <!-- Toolbar below canvas -->
-          <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div style="font-size:12px;color:var(--text-3);font-family:var(--font-mono);" id="canvas-hint">
-              Load an image to begin
-            </div>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-secondary" onclick="toggleAllZones()" style="display:flex;align-items:center;gap:6px;font-size:12px;" id="toggle-btn">
-                <i data-lucide="eye" style="width:13px;height:13px;"></i> Hide Zones
-              </button>
-              <button class="btn btn-primary" onclick="saveZones()" style="display:flex;align-items:center;gap:6px;">
-                <i data-lucide="save" style="width:14px;height:14px;"></i> Save Zones
-              </button>
-            </div>
+        <div class="canvas-wrap" id="canvas-wrap">
+          <img id="ref-image" src="" alt="" style="display:none;" onload="onImageLoad()" />
+          <div class="no-img-placeholder" id="img-placeholder">
+            <i data-lucide="image-plus" style="width:44px;height:44px;opacity:0.25;"></i>
+            <span>Upload a PO photo to start calibrating</span>
+            <button class="btn btn-primary" onclick="document.getElementById('ref-file-input').click()" style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+              <i data-lucide="upload" style="width:13px;height:13px;"></i> Upload Image
+            </button>
           </div>
+        </div>
+
+        <div class="workspace-toolbar">
+          <span class="toolbar-hint" id="canvas-hint">Load an image to begin</span>
+          <button class="btn btn-secondary" onclick="toggleZones()" style="font-size:12px;display:flex;align-items:center;gap:5px;" id="toggle-btn">
+            <i data-lucide="eye" style="width:12px;height:12px;" id="toggle-icon"></i> Hide All
+          </button>
+          <button class="btn btn-primary" onclick="saveAllZones()" style="display:flex;align-items:center;gap:6px;">
+            <i data-lucide="save" style="width:13px;height:13px;"></i> Save Zones
+          </button>
         </div>
       </div>
 
-      <!-- ── Right: Sidebar ─────────────────────────────── -->
+      <!-- ── Right: Sidebar ────────────────────────────────── -->
       <div class="sidebar">
 
-        <!-- Info -->
         <div class="info-box">
-          <strong>How to calibrate:</strong><br>
-          1. Upload a clear photo of your PO<br>
-          2. Drag each colored box to the correct field<br>
-          3. Drag the corners/edges to resize<br>
-          4. Click a zone below to edit its values manually<br>
-          5. Hit <strong>Save Zones</strong> — applied to all future scans
+          <strong>How to use:</strong><br>
+          1. Upload a PO photo<br>
+          2. Click a field name to select it — its box highlights on the image<br>
+          3. Drag to reposition, pull corners/edges to resize<br>
+          4. The extracted text will appear in the field below each zone<br>
+          5. Hit <strong>Save Zones</strong> when done
         </div>
 
-        <!-- Zone list -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Scan Zones</span>
-          </div>
+        <!-- Zone groups rendered by JS -->
+        <div id="zone-groups"></div>
 
-          <div id="zone-list" style="display:flex;flex-direction:column;gap:4px;">
-            <!-- Rendered by JS -->
-          </div>
-        </div>
-
-        <!-- Selected zone editor -->
-        <div class="card" id="zone-editor" style="display:none;">
-          <div class="card-header">
-            <span class="card-title" id="editor-title">Edit Zone</span>
-            <span class="badge badge-grey" id="editor-badge"></span>
-          </div>
-          <p style="font-size:12px;color:var(--text-2);margin-bottom:12px;">
-            Values are percentages (0–100) of the image dimensions.
-          </p>
-          <div class="coord-grid">
-            <div class="coord-input-wrap">
-              <span class="coord-label">Left %</span>
-              <input class="coord-input" type="number" id="inp-left" min="0" max="99" step="0.5" oninput="applyCoordInput()">
-            </div>
-            <div class="coord-input-wrap">
-              <span class="coord-label">Top %</span>
-              <input class="coord-input" type="number" id="inp-top" min="0" max="99" step="0.5" oninput="applyCoordInput()">
-            </div>
-            <div class="coord-input-wrap">
-              <span class="coord-label">Width %</span>
-              <input class="coord-input" type="number" id="inp-width" min="1" max="100" step="0.5" oninput="applyCoordInput()">
-            </div>
-            <div class="coord-input-wrap">
-              <span class="coord-label">Height %</span>
-              <input class="coord-input" type="number" id="inp-height" min="1" max="100" step="0.5" oninput="applyCoordInput()">
-            </div>
-          </div>
-        </div>
-
-        <!-- Actions -->
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <button class="btn btn-primary" onclick="saveZones()" style="display:flex;align-items:center;justify-content:center;gap:7px;">
-            <i data-lucide="save" style="width:15px;height:15px;"></i> Save & Apply Zones
+          <button class="btn btn-primary" onclick="saveAllZones()" style="display:flex;align-items:center;justify-content:center;gap:7px;">
+            <i data-lucide="save" style="width:14px;height:14px;"></i> Save & Apply All Zones
           </button>
           <a href="scanner.html" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:7px;text-decoration:none;">
-            <i data-lucide="scan" style="width:15px;height:15px;"></i> Go to Scanner
+            <i data-lucide="scan" style="width:14px;height:14px;"></i> Go to Scanner
           </a>
         </div>
 

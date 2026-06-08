@@ -1,140 +1,175 @@
 /**
- * scanner.js
- * PO Scanner — Camera feed, zone-based OCR, Excel lookup
+ * scanner.js — Merged capture + calibrate + scan flow
  *
- * Zone calibration: the % values in ZONES below match CSS zone positions.
- * After testing with your actual PO template, adjust these to match exactly.
+ * Step 1: Capture  — live camera OR file upload
+ * Step 2: Calibrate — drag/resize zone boxes on the frozen image
+ * Step 3: Scan     — OCR runs, results appear, Excel lookup
  */
 
 "use strict";
 
-// ─── Zone Definitions ───────────────────────────────────────────────────────
-// Default zones — overridden by calibration data saved in localStorage.
+// ─── Zones ───────────────────────────────────────────────────────────────────
+const ZONES_KEY = "purchasing-tool-zones";
+
 const DEFAULT_ZONES = {
   poNumber: { top: 0.03, left: 0.76, width: 0.22, height: 0.07 },
   supplier: { top: 0.03, left: 0.02, width: 0.30, height: 0.07 },
   items:    { top: 0.22, left: 0.02, width: 0.96, height: 0.45 },
 };
 
-const ZONES_KEY = "purchasing-tool-zones";
+const ZONE_META = {
+  poNumber: { label: "PO Number",      color: "#388bfd" },
+  supplier: { label: "Supplier Name",  color: "#3fb950" },
+  items:    { label: "Items & Amounts",color: "#d29922" },
+};
 
 function loadZones() {
-  try {
-    const saved = localStorage.getItem(ZONES_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch(e) {}
-  return DEFAULT_ZONES;
+  try { const s = localStorage.getItem(ZONES_KEY); if (s) return JSON.parse(s); } catch(e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_ZONES));
+}
+function saveZonesToStorage() {
+  localStorage.setItem(ZONES_KEY, JSON.stringify(zones));
 }
 
-let ZONES = loadZones();
+let zones = loadZones();
 
-// ─── State ──────────────────────────────────────────────────────────────────
-let stream = null;
-let currentFacingMode = "environment"; // rear camera default
-let allDevices = [];
-let tesseractWorker = null;
-let isWorkerReady = false;
-let currentMode = "camera"; // "camera" | "upload"
-let uploadedImageData = null;
+// ─── State ───────────────────────────────────────────────────────────────────
+let currentStep       = 1;   // 1=capture, 2=calibrate, 3=scan
+let stream            = null;
+let currentFacingMode = "environment";
+let capturedImageData = null;
 
-const video     = document.getElementById("camera-feed");
-const canvas    = document.getElementById("capture-canvas");
-const ctx       = canvas.getContext("2d");
+let tesseractWorker   = null;
+let isWorkerReady     = false;
 
-// ─── Toast Notifications ────────────────────────────────────────────────────
+// drag/resize
+let dragState = null;
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+const videoEl       = document.getElementById("camera-feed");
+const frozenImg     = document.getElementById("frozen-image");
+const captureCanvas = document.getElementById("capture-canvas");
+const captureCtx    = captureCanvas.getContext("2d");
+const viewportWrap  = document.getElementById("viewport-wrap");
+const viewportEmpty = document.getElementById("viewport-empty");
+
+// ─── Toast ───────────────────────────────────────────────────────────────────
 function toast(msg, type = "info", duration = 3500) {
-  const container = document.getElementById("toasts");
   const el = document.createElement("div");
   el.className = `toast toast-${type}`;
-  el.innerHTML = `<span>${msg}</span>`;
-  container.appendChild(el);
+  el.textContent = msg;
+  document.getElementById("toasts").appendChild(el);
   setTimeout(() => el.remove(), duration);
 }
 
-// ─── Mode Toggle ────────────────────────────────────────────────────────────
-function setMode(mode) {
-  currentMode = mode;
-  document.getElementById("camera-panel").style.display  = mode === "camera" ? "block" : "none";
-  document.getElementById("upload-panel").style.display  = mode === "upload" ? "block" : "none";
-  document.getElementById("tab-camera").classList.toggle("active", mode === "camera");
-  document.getElementById("tab-upload").classList.toggle("active", mode === "upload");
-  if (mode !== "camera") stopCamera();
+// ═════════════════════════════════════════════════════════════════════════════
+// STEP MANAGEMENT
+// ═════════════════════════════════════════════════════════════════════════════
+function goToStep(n) {
+  currentStep = n;
+
+  // Update step indicators
+  [1,2,3].forEach(i => {
+    const s = document.getElementById(`step-${i}`);
+    const num = document.getElementById(`step-num-${i}`);
+    s.classList.remove("active","done");
+    if (i < n) { s.classList.add("done"); num.innerHTML = `<i data-lucide="check" style="width:10px;height:10px;"></i>`; }
+    else if (i === n) s.classList.add("active");
+  });
+  if (window.lucide) lucide.createIcons();
+
+  if (n === 1) renderStep1();
+  if (n === 2) renderStep2();
+  if (n === 3) renderStep3();
 }
 
-// ─── Camera ─────────────────────────────────────────────────────────────────
-async function enumerateCameras() {
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    allDevices = devices.filter(d => d.kind === "videoinput");
-    const sel = document.getElementById("camera-select");
-    sel.innerHTML = "";
-    allDevices.forEach((d, i) => {
-      const opt = document.createElement("option");
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Camera ${i + 1}`;
-      sel.appendChild(opt);
-    });
-  } catch (e) {
-    console.warn("Could not enumerate cameras:", e);
+// ═════════════════════════════════════════════════════════════════════════════
+// STEP 1 — CAPTURE
+// ═════════════════════════════════════════════════════════════════════════════
+function renderStep1() {
+  setTitle("Ready to capture", false);
+  setHeaderControls(`
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tab-cam" onclick="switchInputMode('camera')">
+        <i data-lucide="camera" style="width:13px;height:13px;"></i> Camera
+      </button>
+      <button class="mode-tab" id="tab-upload" onclick="switchInputMode('upload')">
+        <i data-lucide="upload" style="width:13px;height:13px;"></i> Upload
+      </button>
+    </div>
+  `);
+  setToolbar(`
+    <button class="btn btn-primary" id="capture-btn" onclick="doCapture()" disabled>
+      <i data-lucide="aperture" style="width:14px;height:14px;"></i> Capture Photo
+    </button>
+    <button class="btn btn-secondary" id="stop-btn" onclick="stopCamera()" disabled>
+      <i data-lucide="square" style="width:13px;height:13px;"></i> Stop
+    </button>
+    <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+    <span class="toolbar-hint" id="toolbar-hint">Start camera or upload an image</span>
+  `);
+  hideCalibrateBar();
+  showBrackets(true);
+  setViewportInteractive(false);
+  showZones(false);
+
+  // Show empty state if no image yet
+  if (!capturedImageData) {
+    viewportEmpty.style.display = "flex";
+    frozenImg.style.display = "none";
+    videoEl.style.display = "none";
   }
+  if (window.lucide) lucide.createIcons();
+}
+
+function switchInputMode(mode) {
+  document.getElementById("tab-cam").classList.toggle("active", mode === "camera");
+  document.getElementById("tab-upload").classList.toggle("active", mode === "upload");
+  if (mode === "camera") {
+    startCamera();
+  } else {
+    stopCamera();
+    document.getElementById("file-input").click();
+  }
+  if (window.lucide) lucide.createIcons();
 }
 
 async function startCamera() {
-  document.getElementById("no-camera-msg").style.display = "none";
-
   const constraints = {
-    video: {
-      facingMode: { ideal: currentFacingMode },
-      width:  { ideal: 1920 },
-      height: { ideal: 1080 },
-    },
+    video: { facingMode: { ideal: currentFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
     audio: false,
   };
-
-  // If a specific device is selected in the dropdown, use it
-  const sel = document.getElementById("camera-select");
-  if (sel.value) {
-    delete constraints.video.facingMode;
-    constraints.video.deviceId = { exact: sel.value };
-  }
-
   try {
     if (stream) stopCamera();
     stream = await navigator.mediaDevices.getUserMedia(constraints);
-    video.srcObject = stream;
-    video.style.display = "block";
-
-    video.onloadedmetadata = () => {
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
+    videoEl.srcObject = stream;
+    videoEl.style.display = "block";
+    frozenImg.style.display = "none";
+    viewportEmpty.style.display = "none";
+    videoEl.onloadedmetadata = () => {
+      captureCanvas.width  = videoEl.videoWidth;
+      captureCanvas.height = videoEl.videoHeight;
     };
-
-    document.getElementById("rec-dot").classList.add("live");
-    document.getElementById("cam-status").textContent = "Live";
+    setTitle("Live", true);
     document.getElementById("capture-btn").disabled = false;
     document.getElementById("stop-btn").disabled = false;
-    document.getElementById("cam-tip").textContent = "Align PO within the brackets, then tap Capture";
-
-    await enumerateCameras();
-    await initTesseract();
-  } catch (err) {
-    console.error("Camera error:", err);
-    toast("Camera access denied or unavailable. Try the Upload tab instead.", "error", 5000);
-    document.getElementById("no-camera-msg").style.display = "flex";
+    document.getElementById("toolbar-hint").textContent = "Align PO with the brackets, then Capture";
+    initTesseract();
+  } catch(err) {
+    toast("Camera access denied. Try uploading an image instead.", "error", 5000);
   }
+  if (window.lucide) lucide.createIcons();
 }
 
 function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-  }
-  video.srcObject = null;
-  document.getElementById("rec-dot").classList.remove("live");
-  document.getElementById("cam-status").textContent = "Camera inactive";
-  document.getElementById("capture-btn").disabled = true;
-  document.getElementById("stop-btn").disabled = true;
-  document.getElementById("no-camera-msg").style.display = "flex";
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  videoEl.srcObject = null;
+  videoEl.style.display = "none";
+  setTitle("Camera stopped", false);
+  const btn = document.getElementById("capture-btn");
+  const stop = document.getElementById("stop-btn");
+  if (btn) btn.disabled = true;
+  if (stop) stop.disabled = true;
 }
 
 function switchCamera() {
@@ -142,38 +177,244 @@ function switchCamera() {
   if (stream) startCamera();
 }
 
-// Allow selecting camera from dropdown
-document.getElementById("camera-select").addEventListener("change", () => {
-  if (stream) startCamera();
-});
+function doCapture() {
+  if (!stream) return;
+  captureCanvas.width  = videoEl.videoWidth  || 1280;
+  captureCanvas.height = videoEl.videoHeight || 720;
+  captureCtx.drawImage(videoEl, 0, 0, captureCanvas.width, captureCanvas.height);
+  capturedImageData = captureCanvas.toDataURL("image/png");
+  stopCamera();
+  loadFrozenImage(capturedImageData);
+  goToStep(2);
+}
 
-// ─── Tesseract Initialization ────────────────────────────────────────────────
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    capturedImageData = e.target.result;
+    loadFrozenImage(capturedImageData);
+    goToStep(2);
+  };
+  reader.readAsDataURL(file);
+}
+
+function loadFrozenImage(src) {
+  frozenImg.src = src;
+  frozenImg.style.display = "block";
+  videoEl.style.display = "none";
+  viewportEmpty.style.display = "none";
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STEP 2 — CALIBRATE
+// ═════════════════════════════════════════════════════════════════════════════
+function renderStep2() {
+  setTitle("Calibrate scan zones", false);
+  setHeaderControls(`
+    <button class="btn btn-secondary" style="font-size:12px;display:flex;align-items:center;gap:5px;" onclick="resetZones()">
+      <i data-lucide="rotate-ccw" style="width:12px;height:12px;"></i> Reset
+    </button>
+    <button class="btn btn-secondary" style="font-size:12px;display:flex;align-items:center;gap:5px;" onclick="goToStep(1)">
+      <i data-lucide="arrow-left" style="width:12px;height:12px;"></i> Retake
+    </button>
+  `);
+  setToolbar(`
+    <button class="btn btn-primary" onclick="confirmCalibration()" style="display:flex;align-items:center;gap:7px;">
+      <i data-lucide="check" style="width:14px;height:14px;"></i> Zones Look Good — Scan Now
+    </button>
+    <span class="toolbar-hint">Drag boxes to reposition, pull edges to resize</span>
+  `);
+  showCalibrateBar();
+  showBrackets(false);
+  setViewportInteractive(true);
+  buildZoneBoxes();
+  showZones(true);
+  if (window.lucide) lucide.createIcons();
+}
+
+function buildZoneBoxes() {
+  // Remove old zone boxes
+  viewportWrap.querySelectorAll(".zone-box").forEach(el => el.remove());
+
+  Object.entries(zones).forEach(([key, z]) => {
+    const meta = ZONE_META[key];
+    const box = document.createElement("div");
+    box.className = "zone-box";
+    box.dataset.zone = key;
+    positionZoneBox(box, z);
+
+    // Label
+    const lbl = document.createElement("div");
+    lbl.className = "zone-label";
+    lbl.textContent = meta.label;
+    box.appendChild(lbl);
+
+    // Resize handles
+    ["nw","n","ne","e","se","s","sw","w"].forEach(dir => {
+      const h = document.createElement("div");
+      h.className = `rh rh-${dir}`;
+      h.dataset.handle = dir;
+      h.addEventListener("mousedown",  e => startResize(e, key, dir));
+      h.addEventListener("touchstart", e => startResizeTouch(e, key, dir), { passive: false });
+      box.appendChild(h);
+    });
+
+    box.addEventListener("mousedown",  e => startMove(e, key));
+    box.addEventListener("touchstart", e => startMoveTouch(e, key), { passive: false });
+
+    viewportWrap.appendChild(box);
+  });
+}
+
+function positionZoneBox(box, z) {
+  box.style.left   = (z.left   * 100) + "%";
+  box.style.top    = (z.top    * 100) + "%";
+  box.style.width  = (z.width  * 100) + "%";
+  box.style.height = (z.height * 100) + "%";
+}
+
+function updateZoneBox(key) {
+  const box = viewportWrap.querySelector(`.zone-box[data-zone="${key}"]`);
+  if (box) positionZoneBox(box, zones[key]);
+}
+
+function resetZones() {
+  zones = JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  buildZoneBoxes();
+  toast("Zones reset to defaults.", "info");
+}
+
+function confirmCalibration() {
+  saveZonesToStorage();
+  toast("Zones saved. Starting scan...", "success");
+  goToStep(3);
+}
+
+// ─── Drag / Resize (mouse) ────────────────────────────────────────────────────
+function getWrapRect() { return viewportWrap.getBoundingClientRect(); }
+
+function startMove(e, key) {
+  if (e.target.classList.contains("rh")) return;
+  e.preventDefault();
+  const r = getWrapRect();
+  dragState = { type:"move", zone:key, startX:e.clientX, startY:e.clientY,
+    startZone:{...zones[key]}, wrapW:r.width, wrapH:r.height };
+}
+function startResize(e, key, handle) {
+  e.preventDefault(); e.stopPropagation();
+  const r = getWrapRect();
+  dragState = { type:"resize", zone:key, handle, startX:e.clientX, startY:e.clientY,
+    startZone:{...zones[key]}, wrapW:r.width, wrapH:r.height };
+}
+function startMoveTouch(e, key) {
+  if (e.target.classList.contains("rh")) return;
+  e.preventDefault();
+  const t = e.touches[0]; const r = getWrapRect();
+  dragState = { type:"move", zone:key, startX:t.clientX, startY:t.clientY,
+    startZone:{...zones[key]}, wrapW:r.width, wrapH:r.height };
+}
+function startResizeTouch(e, key, handle) {
+  e.preventDefault(); e.stopPropagation();
+  const t = e.touches[0]; const r = getWrapRect();
+  dragState = { type:"resize", zone:key, handle, startX:t.clientX, startY:t.clientY,
+    startZone:{...zones[key]}, wrapW:r.width, wrapH:r.height };
+}
+
+document.addEventListener("mousemove", e => { if (dragState) handleDrag(e.clientX, e.clientY); });
+document.addEventListener("mouseup",   () => { dragState = null; });
+document.addEventListener("touchmove", e => {
+  if (!dragState) return;
+  e.preventDefault();
+  handleDrag(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+document.addEventListener("touchend", () => { dragState = null; });
+
+function handleDrag(cx, cy) {
+  if (!dragState) return;
+  const dx = (cx - dragState.startX) / dragState.wrapW;
+  const dy = (cy - dragState.startY) / dragState.wrapH;
+  const sz = dragState.startZone;
+  const key = dragState.zone;
+  let { left, top, width, height } = sz;
+
+  if (dragState.type === "move") {
+    left = clamp(sz.left + dx, 0, 1 - sz.width);
+    top  = clamp(sz.top  + dy, 0, 1 - sz.height);
+  } else {
+    const h = dragState.handle;
+    if (h.includes("e")) width  = clamp(sz.width  + dx, 0.02, 1 - sz.left);
+    if (h.includes("s")) height = clamp(sz.height + dy, 0.02, 1 - sz.top);
+    if (h.includes("w")) {
+      const nl = clamp(sz.left + dx, 0, sz.left + sz.width - 0.02);
+      width = sz.left + sz.width - nl; left = nl;
+    }
+    if (h.includes("n")) {
+      const nt = clamp(sz.top + dy, 0, sz.top + sz.height - 0.02);
+      height = sz.top + sz.height - nt; top = nt;
+    }
+  }
+
+  zones[key] = { left, top, width, height };
+  updateZoneBox(key);
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STEP 3 — SCAN
+// ═════════════════════════════════════════════════════════════════════════════
+function renderStep3() {
+  setTitle("Scanning...", false);
+  setHeaderControls(`
+    <button class="btn btn-secondary" style="font-size:12px;display:flex;align-items:center;gap:5px;" onclick="goToStep(2)">
+      <i data-lucide="move" style="width:12px;height:12px;"></i> Adjust Zones
+    </button>
+    <button class="btn btn-secondary" style="font-size:12px;display:flex;align-items:center;gap:5px;" onclick="goToStep(1)">
+      <i data-lucide="refresh-cw" style="width:12px;height:12px;"></i> New Scan
+    </button>
+  `);
+  setToolbar(`<span class="toolbar-hint" id="toolbar-hint">Running OCR...</span>`);
+  hideCalibrateBar();
+  showBrackets(false);
+  setViewportInteractive(false);
+  showZones(true);
+  if (window.lucide) lucide.createIcons();
+
+  // Kick off OCR
+  runOCR(capturedImageData);
+}
+
+// ─── Zone state highlight ─────────────────────────────────────────────────────
+function setZoneState(key, state) {
+  const box = viewportWrap.querySelector(`.zone-box[data-zone="${key}"]`);
+  if (!box) return;
+  box.classList.remove("zone-active","zone-done");
+  if (state) box.classList.add(`zone-${state}`);
+}
+
+// ─── Tesseract ────────────────────────────────────────────────────────────────
 async function initTesseract() {
   if (isWorkerReady) return;
-  updateOCRStatus("Loading Tesseract engine...", 10);
-
+  updateOCRStatus("Loading OCR engine...", 10);
   try {
     tesseractWorker = await Tesseract.createWorker("eng", 1, {
       logger: m => {
-        if (m.status === "recognizing text") {
+        if (m.status === "recognizing text")
           updateOCRStatus(`Recognizing... ${Math.round(m.progress * 100)}%`, m.progress * 100);
-        }
       },
     });
-
-    // Configure for printed document text
     await tesseractWorker.setParameters({
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,/-: ()",
       preserve_interword_spaces: "1",
     });
-
     isWorkerReady = true;
     updateOCRStatus("Ready", 100);
     document.getElementById("ocr-engine-badge").textContent = "Tesseract.js · Ready";
     document.getElementById("ocr-engine-badge").className = "badge badge-green";
-    setTimeout(() => { document.getElementById("ocr-progress-wrap").classList.remove("visible"); }, 1000);
-  } catch (e) {
-    console.error("Tesseract init failed:", e);
+    setTimeout(() => document.getElementById("ocr-progress-wrap").classList.remove("visible"), 1000);
+  } catch(e) {
     updateOCRStatus("Engine failed to load", 0);
     toast("OCR engine failed to load. Check internet connection.", "error");
   }
@@ -186,125 +427,80 @@ function updateOCRStatus(msg, pct) {
   document.getElementById("ocr-status-text").textContent = msg;
 }
 
-// ─── Capture Frame from Video ────────────────────────────────────────────────
-function captureFrame() {
-  canvas.width  = video.videoWidth  || 1280;
-  canvas.height = video.videoHeight || 720;
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/png");
-}
-
-// ─── Crop a zone from an image (dataURL) → returns cropped dataURL ───────────
-function cropZone(imageDataURL, zone) {
+async function cropZone(imageDataURL, zone) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const w = img.width;
-      const h = img.height;
-
-      // Add small padding for better OCR accuracy
-      const pad = 4;
-      const x = Math.max(0, Math.floor(zone.left  * w) - pad);
-      const y = Math.max(0, Math.floor(zone.top   * h) - pad);
+      const w = img.width, h = img.height, pad = 4;
+      const x  = Math.max(0, Math.floor(zone.left   * w) - pad);
+      const y  = Math.max(0, Math.floor(zone.top    * h) - pad);
       const cw = Math.min(w - x, Math.ceil(zone.width  * w) + pad * 2);
       const ch = Math.min(h - y, Math.ceil(zone.height * h) + pad * 2);
-
-      // Upscale 2× for better OCR on small zones
-      const scale = 2;
-      const offscreen = document.createElement("canvas");
-      offscreen.width  = cw * scale;
-      offscreen.height = ch * scale;
-      const octx = offscreen.getContext("2d");
-
-      // Slight contrast boost helps OCR on printed text
+      const off = document.createElement("canvas");
+      off.width = cw * 2; off.height = ch * 2;
+      const octx = off.getContext("2d");
       octx.filter = "contrast(1.15) brightness(1.05)";
-      octx.drawImage(img, x, y, cw, ch, 0, 0, cw * scale, ch * scale);
-      resolve(offscreen.toDataURL("image/png"));
+      octx.drawImage(img, x, y, cw, ch, 0, 0, cw * 2, ch * 2);
+      resolve(off.toDataURL("image/png"));
     };
     img.src = imageDataURL;
   });
 }
 
-// ─── Run OCR on a cropped zone ───────────────────────────────────────────────
 async function ocrZone(imageDataURL, zone) {
   if (!isWorkerReady) await initTesseract();
   const cropped = await cropZone(imageDataURL, zone);
   const result  = await tesseractWorker.recognize(cropped);
-  return {
-    text: result.data.text.trim().replace(/\n+/g, " ").replace(/\s+/g, " "),
-    confidence: result.data.confidence,
-  };
+  return { text: result.data.text.trim().replace(/\s+/g, " "), confidence: result.data.confidence };
 }
 
-// ─── Main: Capture from camera and scan ──────────────────────────────────────
-async function captureAndScan() {
-  if (!stream) { toast("Start the camera first", "warn"); return; }
-
-  const imageData = captureFrame();
-  document.getElementById("scan-line").classList.add("scanning");
-  await runOCR(imageData);
-  setTimeout(() => document.getElementById("scan-line").classList.remove("scanning"), 2200);
-}
-
-// ─── Main: Scan uploaded image ───────────────────────────────────────────────
-async function scanUploadedImage() {
-  if (!uploadedImageData) { toast("No image loaded", "warn"); return; }
-  await runOCR(uploadedImageData);
-}
-
-// ─── Core OCR Pipeline ───────────────────────────────────────────────────────
 async function runOCR(imageDataURL) {
-  if (!isWorkerReady) {
-    toast("OCR engine not ready yet, please wait...", "warn");
-    await initTesseract();
-  }
+  if (!isWorkerReady) await initTesseract();
 
-  // Highlight active zones
-  setZoneState("zone-po",       "active");
-  setZoneState("zone-supplier", "");
-  setZoneState("zone-items",    "");
-  updateOCRStatus("Scanning PO Number...", 15);
+  document.getElementById("scan-line").classList.add("scanning");
   document.getElementById("ocr-engine-badge").textContent = "Scanning...";
   document.getElementById("ocr-engine-badge").className = "badge badge-yellow";
 
   try {
-    // Scan zones sequentially
-    const poResult = await ocrZone(imageDataURL, ZONES.poNumber);
-    setFieldValue("val-po", poResult.text, poResult.confidence, "po-conf");
-    setZoneState("zone-po", "done");
-    setZoneState("zone-supplier", "active");
+    setZoneState("poNumber","active");
+    updateOCRStatus("Scanning PO Number...", 15);
+    const po = await ocrZone(imageDataURL, zones.poNumber);
+    setFieldValue("val-po", po.text, po.confidence, "po-conf");
+    setZoneState("poNumber","done");
 
-    updateOCRStatus("Scanning Supplier Name...", 40);
-    const supplierResult = await ocrZone(imageDataURL, ZONES.supplier);
-    setFieldValue("val-supplier", supplierResult.text, supplierResult.confidence, "supplier-conf");
-    setZoneState("zone-supplier", "done");
-    setZoneState("zone-items", "active");
+    setZoneState("supplier","active");
+    updateOCRStatus("Scanning Supplier Name...", 45);
+    const sup = await ocrZone(imageDataURL, zones.supplier);
+    setFieldValue("val-supplier", sup.text, sup.confidence, "supplier-conf");
+    setZoneState("supplier","done");
 
-    updateOCRStatus("Scanning Items & Amounts...", 65);
-    const itemsResult = await ocrZone(imageDataURL, ZONES.items);
-    document.getElementById("val-items").value = itemsResult.text;
-    setZoneState("zone-items", "done");
+    setZoneState("items","active");
+    updateOCRStatus("Scanning Items & Amounts...", 70);
+    const itm = await ocrZone(imageDataURL, zones.items);
+    document.getElementById("val-items").value = itm.text;
+    setZoneState("items","done");
 
-    updateOCRStatus("Scan complete ✓", 100);
+    document.getElementById("scan-line").classList.remove("scanning");
+    updateOCRStatus("Scan complete", 100);
     document.getElementById("ocr-engine-badge").textContent = "Tesseract.js · Done";
     document.getElementById("ocr-engine-badge").className = "badge badge-green";
+    setTitle("Scan complete", false);
+
+    const hint = document.getElementById("toolbar-hint");
+    if (hint) hint.textContent = "Review extracted data on the right, then check in Excel";
+
     toast("OCR complete! Review extracted data.", "success");
+    setTimeout(lookupPO, 400);
 
-    // Auto-lookup after scan
-    setTimeout(lookupPO, 500);
-  } catch (err) {
+  } catch(err) {
     console.error("OCR error:", err);
-    updateOCRStatus("OCR failed — try better lighting", 0);
+    document.getElementById("scan-line").classList.remove("scanning");
+    updateOCRStatus("OCR failed", 0);
     document.getElementById("ocr-engine-badge").className = "badge badge-red";
-    toast("OCR failed. Ensure good lighting and try again.", "error");
+    toast("OCR failed. Go back and adjust zones, or try better lighting.", "error", 5000);
+    setTitle("Scan failed — adjust zones and retry", false);
   }
-}
-
-function setZoneState(id, state) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.remove("active", "done");
-  if (state) el.classList.add(state);
+  if (window.lucide) lucide.createIcons();
 }
 
 function setFieldValue(inputId, text, confidence, badgeId) {
@@ -317,285 +513,197 @@ function setFieldValue(inputId, text, confidence, badgeId) {
   }
 }
 
-// ─── Excel Lookup ────────────────────────────────────────────────────────────
+// ─── Excel Lookup ─────────────────────────────────────────────────────────────
 async function lookupPO() {
   const poNumber = document.getElementById("val-po").value.trim();
   if (!poNumber) { toast("Enter or scan a PO number first", "warn"); return; }
 
-  const resultCard = document.getElementById("result-card");
-  resultCard.style.display = "block";
-  document.getElementById("result-body").innerHTML = `
-    <div style="padding:20px;text-align:center;color:var(--text-2);">
-      <div style="font-size:24px;margin-bottom:8px;">🔍</div>
-      Looking up ${poNumber}...
-    </div>`;
+  const rc = document.getElementById("result-card");
+  rc.style.display = "block";
+  document.getElementById("result-body").innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-2);">Looking up ${poNumber}...</div>`;
   document.getElementById("result-badge").textContent = "Searching";
   document.getElementById("result-badge").className = "badge badge-grey";
   document.getElementById("result-actions").innerHTML = "";
 
   try {
-    const res  = await fetch(`/api/po/${encodeURIComponent(poNumber)}`);
-    const data = await res.json();
-
-    if (data.found) {
-      showMatchResult(data.row, data.sheet);
-    } else {
-      showNoMatchResult(poNumber);
-    }
-  } catch (e) {
+    const data = await fetch(`/api/po/${encodeURIComponent(poNumber)}`).then(r => r.json());
+    data.found ? showMatchResult(data.row, data.sheet) : showNoMatchResult(poNumber);
+  } catch(e) {
     document.getElementById("result-badge").textContent = "Server Error";
     document.getElementById("result-badge").className = "badge badge-red";
-    document.getElementById("result-body").innerHTML = `
-      <div style="padding:16px;color:var(--red);font-size:13px;">
-        ⚠️ Could not connect to server. Is <code>node server.js</code> running?
-      </div>`;
+    document.getElementById("result-body").innerHTML = `<div style="padding:16px;color:var(--red);font-size:13px;">Could not connect to server. Is node server.js running?</div>`;
   }
 }
 
 function showMatchResult(row, sheet) {
-  const scannedSupplier = document.getElementById("val-supplier").value.trim();
-  const scannedItems    = document.getElementById("val-items").value.trim();
+  const scanned = document.getElementById("val-supplier").value.trim();
+  const xlSup   = row["SUPPLIER'S NAME"] || "";
+  const match   = normalize(xlSup).includes(normalize(scanned)) || normalize(scanned).includes(normalize(xlSup));
+  const mismatch = scanned && !match;
 
-  const xlSupplier = row["SUPPLIER'S NAME"] || "";
-  const xlAmount   = row["TOTAL AMOUNT"]    || "";
-  const xlStatus   = row["PURCHASE ORDER STATUS"] || "";
-
-  // Simple comparison
-  const supplierMatch = normalize(scannedSupplier) === normalize(xlSupplier)
-    || normalize(xlSupplier).includes(normalize(scannedSupplier))
-    || normalize(scannedSupplier).includes(normalize(xlSupplier));
-
-  const hasMismatch = scannedSupplier && !supplierMatch;
-
-  document.getElementById("result-badge").textContent = hasMismatch ? "⚠ Discrepancy" : "✓ Match";
-  document.getElementById("result-badge").className = `badge ${hasMismatch ? "badge-red" : "badge-green"}`;
+  document.getElementById("result-badge").textContent = mismatch ? "Discrepancy" : "Match";
+  document.getElementById("result-badge").className   = `badge ${mismatch ? "badge-red" : "badge-green"}`;
 
   const rows = [
-    { field: "PO Number",       scanned: document.getElementById("val-po").value, excel: row["PO NUMBER"]       || row["PO Number"]       || "—", match: true },
-    { field: "Supplier Name",   scanned: scannedSupplier, excel: xlSupplier,       match: supplierMatch },
-    { field: "Sheet (Month)",   scanned: "—",             excel: sheet,            match: true },
-    { field: "PO Status",       scanned: "—",             excel: xlStatus,         match: true },
-    { field: "Total Amount",    scanned: "—",             excel: xlAmount,         match: true },
-    { field: "Requesting Dept", scanned: "—",             excel: row["REQUESTING DEPT."] || "—", match: true },
+    { f:"PO Number",    s:document.getElementById("val-po").value, x:row["PO NUMBER"]||"—", m:true },
+    { f:"Supplier",     s:scanned, x:xlSup, m:match },
+    { f:"Sheet",        s:"—", x:sheet, m:true },
+    { f:"Status",       s:"—", x:row["PURCHASE ORDER STATUS"]||"—", m:true },
+    { f:"Total Amount", s:"—", x:row["TOTAL AMOUNT"]||"—", m:true },
+    { f:"Dept",         s:"—", x:row["REQUESTING DEPT."]||"—", m:true },
   ];
 
-  let tableHTML = `
-    <div class="table-wrap" style="border-radius:0;border:none;">
-      <table>
-        <thead>
-          <tr>
-            <th>Field</th>
-            <th>Scanned</th>
-            <th>In Excel</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
-
+  let html = `<div class="table-wrap" style="border-radius:0;border:none;"><table>
+    <thead><tr><th>Field</th><th>Scanned</th><th>In Excel</th><th></th></tr></thead><tbody>`;
   rows.forEach(r => {
-    const statusIcon = r.scanned === "—" ? "—" : (r.match ? "✓" : "✗");
-    const cls = r.scanned === "—" ? "" : (r.match ? "diff-row-match" : "diff-row-mismatch");
-    tableHTML += `
-      <tr>
-        <td class="mono" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);">${r.field}</td>
-        <td style="font-family:var(--font-mono);font-size:12px;">${r.scanned || "—"}</td>
-        <td style="font-family:var(--font-mono);font-size:12px;">${r.excel || "—"}</td>
-        <td class="${cls}" style="font-family:var(--font-mono);font-size:13px;">${statusIcon}</td>
-      </tr>`;
+    const icon = r.s==="—" ? "—" : (r.m ? "✓" : "✗");
+    const cls  = r.s==="—" ? "" : (r.m ? "diff-row-match" : "diff-row-mismatch");
+    html += `<tr>
+      <td class="mono" style="font-size:10px;text-transform:uppercase;color:var(--text-2);">${r.f}</td>
+      <td style="font-family:var(--font-mono);font-size:11px;">${r.s||"—"}</td>
+      <td style="font-family:var(--font-mono);font-size:11px;">${r.x||"—"}</td>
+      <td class="${cls}" style="font-family:var(--font-mono);font-size:12px;">${icon}</td>
+    </tr>`;
   });
+  html += `</tbody></table></div>`;
+  html += mismatch
+    ? `<div style="padding:10px 14px;background:#3a1a1a;border-top:1px solid #5a2d2d;font-size:12px;color:var(--red);">Supplier name mismatch — verify before proceeding.</div>`
+    : `<div style="padding:10px 14px;background:#1a3a1e;border-top:1px solid #2d5a32;font-size:12px;color:var(--green);">PO found — sheet: ${sheet}</div>`;
 
-  tableHTML += "</tbody></table></div>";
-
-  if (hasMismatch) {
-    tableHTML += `<div style="padding:12px 16px;background:#3a1a1a;border-top:1px solid #5a2d2d;font-size:13px;color:var(--red);">
-      ⚠️ Supplier name mismatch detected. Verify the physical PO before proceeding.
-    </div>`;
-  } else {
-    tableHTML += `<div style="padding:12px 16px;background:#1a3a1e;border-top:1px solid #2d5a32;font-size:13px;color:var(--green);">
-      ✅ PO found in monitoring file — sheet: ${sheet}
-    </div>`;
-  }
-
-  document.getElementById("result-body").innerHTML = tableHTML;
-
-  const actions = document.getElementById("result-actions");
-  actions.innerHTML = `
-    <button class="btn btn-secondary" style="font-size:12px;" onclick="copyToClipboard()">📋 Copy PO Data</button>
-  `;
-
-  toast(hasMismatch ? "Discrepancy found! Check result." : "PO matched successfully.", hasMismatch ? "warn" : "success");
+  document.getElementById("result-body").innerHTML = html;
+  document.getElementById("result-actions").innerHTML = `
+    <button class="btn btn-secondary" style="font-size:11px;display:flex;align-items:center;gap:5px;" onclick="copyToClipboard()">
+      <i data-lucide="clipboard" style="width:12px;height:12px;"></i> Copy
+    </button>`;
+  if (window.lucide) lucide.createIcons();
+  toast(mismatch ? "Discrepancy found!" : "PO matched.", mismatch ? "warn" : "success");
 }
 
 function showNoMatchResult(poNumber) {
   document.getElementById("result-badge").textContent = "Not Found";
   document.getElementById("result-badge").className = "badge badge-yellow";
   document.getElementById("result-body").innerHTML = `
-    <div style="padding:20px 16px;">
-      <div style="font-size:28px;margin-bottom:8px;">🔎</div>
-      <div style="font-size:14px;font-weight:600;margin-bottom:6px;">PO not found in monitoring file</div>
-      <div style="font-size:13px;color:var(--text-2);">
-        <strong>${poNumber}</strong> was not found in any monthly sheet. 
-        You can add it as a new row below.
-      </div>
+    <div style="padding:18px 14px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:5px;">PO not found in monitoring file</div>
+      <div style="font-size:12px;color:var(--text-2);"><strong>${poNumber}</strong> was not found in any monthly sheet.</div>
     </div>`;
-
   document.getElementById("result-actions").innerHTML = `
-    <button class="btn btn-primary" onclick="openAddModal()">➕ Add New Row</button>
-  `;
-
-  toast(`PO "${poNumber}" not found. You can add it.`, "warn");
+    <button class="btn btn-primary" onclick="openAddModal()" style="display:flex;align-items:center;gap:6px;font-size:12px;">
+      <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> Add New Row
+    </button>`;
+  if (window.lucide) lucide.createIcons();
+  toast(`PO "${poNumber}" not found.`, "warn");
 }
 
-// ─── Add New Row Modal ───────────────────────────────────────────────────────
+// ─── Add Row Modal ────────────────────────────────────────────────────────────
 const COLUMNS = [
-  "PR DATE", "PR DATE RECEIVED", "PR NO.", "REQUESTING DEPT.",
-  "PO DATE", "PO NUMBER", "END USER/S", "SUPPLIER'S NAME",
-  "ITEM CODE", "ITEM DESCRIPTION", "SPECIFICATIONS", "QTY", "UoM",
-  "UNIT PRICE", "AMOUNT", "TOTAL AMOUNT", "PR REQUIRED DATE",
-  "DATE DELIVERED", "REMARKS", "PURCHASE ORDER STATUS",
-  "ITEMS/SERVICES", "ORIGINAL PRICE", "TOTAL COST SAVINGS"
+  "PR DATE","PR DATE RECEIVED","PR NO.","REQUESTING DEPT.",
+  "PO DATE","PO NUMBER","END USER/S","SUPPLIER'S NAME",
+  "ITEM CODE","ITEM DESCRIPTION","SPECIFICATIONS","QTY","UoM",
+  "UNIT PRICE","AMOUNT","TOTAL AMOUNT","PR REQUIRED DATE",
+  "DATE DELIVERED","REMARKS","PURCHASE ORDER STATUS",
+  "ITEMS/SERVICES","ORIGINAL PRICE","TOTAL COST SAVINGS"
 ];
 
 function openAddModal() {
   const prefill = {
-    "PO NUMBER":       document.getElementById("val-po").value,
-    "SUPPLIER'S NAME": document.getElementById("val-supplier").value,
-    "REQUESTING DEPT.":document.getElementById("val-dept").value,
-    "PO DATE":         document.getElementById("val-po-date").value,
-    "ITEMS/SERVICES":  document.getElementById("val-items").value,
+    "PO NUMBER":        document.getElementById("val-po").value,
+    "SUPPLIER'S NAME":  document.getElementById("val-supplier").value,
+    "REQUESTING DEPT.": document.getElementById("val-dept").value,
+    "PO DATE":          document.getElementById("val-po-date").value,
+    "ITEMS/SERVICES":   document.getElementById("val-items").value,
   };
-
   const container = document.getElementById("add-form-fields");
   container.innerHTML = "";
-
   COLUMNS.forEach(col => {
     const div = document.createElement("div");
-    div.innerHTML = `
-      <div class="form-label">${col}</div>
+    div.innerHTML = `<div class="form-label">${col}</div>
       <input class="form-input" type="text" id="addrow-${sanitizeId(col)}"
-        value="${escapeHTML(prefill[col] || "")}"
-        placeholder="${col}" />
-    `;
+        value="${escapeHTML(prefill[col]||"")}" placeholder="${col}" />`;
     container.appendChild(div);
   });
-
   document.getElementById("add-modal").classList.add("open");
 }
 
 async function saveNewRow() {
   const month = document.getElementById("val-month").value;
   const rowData = {};
-
   COLUMNS.forEach(col => {
-    const el = document.getElementById("addrow-" + sanitizeId(col));
+    const el = document.getElementById("addrow-"+sanitizeId(col));
     if (el) rowData[col] = el.value;
   });
-
   try {
-    const res = await fetch(`/api/sheet/${month}/add`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(rowData),
-    });
-    const data = await res.json();
-    if (data.success) {
-      toast("Row added to " + month + " sheet successfully!", "success");
-      closeModal("add-modal");
-      document.getElementById("result-card").style.display = "none";
-    } else {
-      toast("Failed to save row", "error");
-    }
-  } catch (e) {
-    toast("Server error — could not save row", "error");
-  }
+    const data = await fetch(`/api/sheet/${month}/add`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(rowData)
+    }).then(r => r.json());
+    if (data.success) { toast("Row added to "+month+" sheet!", "success"); closeModal("add-modal"); document.getElementById("result-card").style.display="none"; }
+    else toast("Failed to save row","error");
+  } catch(e) { toast("Server error","error"); }
 }
 
-// ─── File Upload ─────────────────────────────────────────────────────────────
-function handleFileSelect(event) {
-  const file = event.target.files[0];
-  if (file) loadImageFile(file);
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function setTitle(text, live) {
+  document.getElementById("panel-title-text").textContent = text;
+  document.getElementById("rec-dot").classList.toggle("live", live);
 }
 
-function handleDrop(event) {
-  event.preventDefault();
-  event.currentTarget.style.borderColor = "var(--border)";
-  const file = event.dataTransfer.files[0];
-  if (file && file.type.startsWith("image/")) {
-    loadImageFile(file);
-  } else {
-    toast("Please drop an image file", "warn");
-  }
+function setHeaderControls(html) {
+  document.getElementById("header-controls").innerHTML = html;
+  if (window.lucide) lucide.createIcons();
 }
 
-function loadImageFile(file) {
-  const reader = new FileReader();
-  reader.onload = e => {
-    uploadedImageData = e.target.result;
-    document.getElementById("preview-img").src = uploadedImageData;
-    document.getElementById("upload-preview").style.display = "block";
-    document.getElementById("drop-zone").style.display = "none";
-    initTesseract(); // pre-load engine
-  };
-  reader.readAsDataURL(file);
+function setToolbar(html) {
+  document.getElementById("viewport-toolbar").innerHTML = html;
+  if (window.lucide) lucide.createIcons();
 }
 
-function clearUpload() {
-  uploadedImageData = null;
-  document.getElementById("upload-preview").style.display = "none";
-  document.getElementById("drop-zone").style.display = "block";
-  document.getElementById("file-input").value = "";
-}
-
-// ─── Utilities ───────────────────────────────────────────────────────────────
-function clearFields() {
-  ["val-po", "val-supplier", "val-items", "val-dept"].forEach(id => {
+function showBrackets(show) {
+  ["brackets-tl","brackets-tr","brackets-bl","brackets-br"].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.value = "";
+    if (el) el.style.display = show ? "block" : "none";
   });
-  ["po-conf", "supplier-conf"].forEach(id => {
+}
+
+function setViewportInteractive(interactive) {
+  viewportWrap.classList.toggle("calibrate-active",   interactive);
+  viewportWrap.classList.toggle("calibrate-inactive", !interactive);
+}
+
+function showZones(show) {
+  viewportWrap.querySelectorAll(".zone-box").forEach(el => {
+    el.style.display = show ? "block" : "none";
+  });
+}
+
+function showCalibrateBar()  { document.getElementById("calibrate-bar").classList.add("visible"); }
+function hideCalibrateBar()  { document.getElementById("calibrate-bar").classList.remove("visible"); }
+
+function clearFields() {
+  ["val-po","val-supplier","val-items","val-dept"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = "";
+  });
+  ["po-conf","supplier-conf"].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.textContent = ""; el.className = "badge badge-grey"; }
   });
-  ["field-po", "field-supplier", "field-items"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.className = "ocr-field";
-  });
   document.getElementById("result-card").style.display = "none";
-  setZoneState("zone-po", ""); setZoneState("zone-supplier", ""); setZoneState("zone-items", "");
 }
 
-function normalize(str) {
-  return String(str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function sanitizeId(str) {
-  return str.replace(/[^a-zA-Z0-9]/g, "_");
-}
-
-function escapeHTML(str) {
-  return String(str).replace(/"/g, "&quot;");
-}
-
-function closeModal(id) {
-  document.getElementById(id).classList.remove("open");
-}
-
+function normalize(str) { return String(str||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+function sanitizeId(str){ return str.replace(/[^a-zA-Z0-9]/g,"_"); }
+function escapeHTML(str){ return String(str).replace(/"/g,"&quot;"); }
+function closeModal(id) { document.getElementById(id).classList.remove("open"); }
 function copyToClipboard() {
-  const po = document.getElementById("val-po").value;
-  const supplier = document.getElementById("val-supplier").value;
-  const items = document.getElementById("val-items").value;
-  const text = `PO Number: ${po}\nSupplier: ${supplier}\nItems: ${items}`;
-  navigator.clipboard.writeText(text).then(() => toast("Copied to clipboard", "success"));
+  const text = `PO: ${document.getElementById("val-po").value}\nSupplier: ${document.getElementById("val-supplier").value}\nItems: ${document.getElementById("val-items").value}`;
+  navigator.clipboard.writeText(text).then(() => toast("Copied","success"));
 }
 
-// ─── Close modal on overlay click ────────────────────────────────────────────
-document.querySelectorAll(".modal-overlay").forEach(overlay => {
-  overlay.addEventListener("click", e => {
-    if (e.target === overlay) overlay.classList.remove("open");
-  });
+document.querySelectorAll(".modal-overlay").forEach(o => {
+  o.addEventListener("click", e => { if (e.target===o) o.classList.remove("open"); });
 });
 
-// ─── Set default month to current month ──────────────────────────────────────
+// ─── Init ─────────────────────────────────────────────────────────────────────
 const MONTH_NAMES = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 document.getElementById("val-month").value = MONTH_NAMES[new Date().getMonth()];
+goToStep(1);
+initTesseract(); // pre-load in background
