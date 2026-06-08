@@ -8,7 +8,7 @@ IT Intern Project — PO Scanner & Monitoring Dashboard
 cd purchasing-tool
 
 # 2. Install dependencies (one time only)
-npm install
+npm install (on work pc if this doesnt work try cmd /c npm install)
 
 # 3. Start the server
 node server.js
