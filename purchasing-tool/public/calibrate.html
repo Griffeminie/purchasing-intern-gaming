@@ -52,18 +52,23 @@
       background: #111;
       overflow: hidden;
       cursor: default;
-      max-height: 72vh;
-      overflow-y: auto;
     }
     body.light .canvas-wrap { background: #ccc; }
 
-    #ref-image {
+    /* The display canvas — always fills full width */
+    #display-canvas {
       display: block;
       width: 100%;
       height: auto;
       pointer-events: none;
       user-select: none;
     }
+
+    /* Hidden working canvas for OpenCV */
+    #work-canvas { display: none; }
+
+    /* Original image element — used only for loading */
+    #ref-image { display: none; }
 
     .no-img-placeholder {
       min-height: 360px;
@@ -75,6 +80,37 @@
       color: var(--text-3);
       font-size: 13px;
     }
+
+    /* Rectify bar shown after image loads */
+    .rectify-bar {
+      display: none;
+      padding: 9px 16px;
+      background: #0a1f3a;
+      border-top: 1px solid #1a3a5a;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--accent-2);
+    }
+    body.light .rectify-bar { background: #ddf4ff; border-color: #aed9fb; }
+    .rectify-bar.visible { display: flex; }
+
+    /* OpenCV loading overlay */
+    .opencv-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      color: #fff;
+      font-size: 13px;
+      font-family: var(--font-mono);
+      z-index: 50;
+    }
+    .opencv-overlay.visible { display: flex; }
 
     /* ── Zone boxes ────────────────────────────────────────── */
     .zone-box {
@@ -352,7 +388,19 @@
         </div>
 
         <div class="canvas-wrap" id="canvas-wrap">
-          <img id="ref-image" src="" alt="" style="display:none;" onload="onImageLoad()" />
+          <!-- Hidden elements for image loading and OpenCV work -->
+          <img id="ref-image" alt="" onload="onImageLoad()" />
+          <canvas id="display-canvas"></canvas>
+          <canvas id="work-canvas"></canvas>
+
+          <!-- Zone boxes injected by JS -->
+
+          <!-- OpenCV processing overlay -->
+          <div class="opencv-overlay" id="opencv-overlay">
+            <div style="font-size:24px;">⬛</div>
+            <span id="opencv-msg">Processing...</span>
+          </div>
+
           <div class="no-img-placeholder" id="img-placeholder">
             <i data-lucide="image-plus" style="width:44px;height:44px;opacity:0.25;"></i>
             <span>Upload a PO photo to start calibrating</span>
@@ -360,6 +408,18 @@
               <i data-lucide="upload" style="width:13px;height:13px;"></i> Upload Image
             </button>
           </div>
+        </div>
+
+        <!-- Rectify bar — appears after image loads -->
+        <div class="rectify-bar" id="rectify-bar">
+          <i data-lucide="scan" style="width:14px;height:14px;flex-shrink:0;"></i>
+          <span style="flex:1;">Perspective distortion detected? Auto-straighten the document for accurate zone alignment.</span>
+          <button class="btn btn-secondary" onclick="rectifyDocument()" style="font-size:12px;display:flex;align-items:center;gap:5px;" id="rectify-btn">
+            <i data-lucide="scan-line" style="width:12px;height:12px;"></i> Auto-Straighten
+          </button>
+          <button class="btn btn-secondary" onclick="useOriginal()" style="font-size:12px;display:flex;align-items:center;gap:5px;" title="Keep original">
+            <i data-lucide="x" style="width:12px;height:12px;"></i>
+          </button>
         </div>
 
         <div class="workspace-toolbar">
@@ -401,6 +461,8 @@
     </div>
   </div>
 
+  <!-- OpenCV.js for perspective correction (loads async) -->
+  <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvFailed()"></script>
   <script src="calibrate.js"></script>
   <script>lucide.createIcons();</script>
 </body>

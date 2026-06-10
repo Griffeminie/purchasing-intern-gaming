@@ -144,10 +144,14 @@
         <div>
           <h1>Monitoring Dashboard</h1>
           <p>Live visualization from monitoring.xlsx — Year 2026</p>
+          <p style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:4px;" id="data-note">Loading...</p>
         </div>
-        <button class="btn btn-secondary" onclick="loadDashboard()" style="display:flex;align-items:center;gap:7px;">
-          <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Refresh
-        </button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="cache-badge" style="display:none;font-size:11px;font-family:var(--font-mono);color:var(--text-3);background:var(--bg-3);border:1px solid var(--border);padding:3px 9px;border-radius:99px;"></span>
+          <button class="btn btn-secondary" id="refresh-btn" onclick="loadDashboard(true)" style="display:flex;align-items:center;gap:7px;">
+            <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Refresh
+          </button>
+        </div>
       </div>
     </div>
 
@@ -271,8 +275,32 @@
         </div>
       </div>
     </div>
-  </div>
+    <!-- Debug Panel -->
+    <div id="debug-panel" style="display:none;margin-top:24px;">
+      <div class="chart-card">
+        <div class="chart-title">
+          <div class="chart-title-left">
+            <i data-lucide="terminal" style="width:14px;height:14px;"></i>
+            Debug Log
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-size:10px;color:var(--text-3);">Shows what the server is reading from your Excel</span>
+            <button class="btn btn-secondary" style="font-size:11px;padding:3px 9px;" onclick="document.getElementById('debug-panel').style.display='none'">Hide</button>
+          </div>
+        </div>
+        <div id="debug-log" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;max-height:220px;overflow-y:auto;font-family:var(--font-mono);"></div>
 
+        <!-- Raw API response inspector -->
+        <div style="margin-top:12px;">
+          <button class="btn btn-secondary" style="font-size:12px;display:flex;align-items:center;gap:6px;" onclick="inspectRaw()">
+            <i data-lucide="eye" style="width:13px;height:13px;"></i> Inspect Raw API Response
+          </button>
+        </div>
+        <pre id="raw-response" style="display:none;margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:10px;overflow-x:auto;max-height:300px;overflow-y:auto;color:var(--text-2);"></pre>
+      </div>
+    </div>
+
+  </div><!-- /container -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="charts.js"></script>
   <script>lucide.createIcons();</script>
