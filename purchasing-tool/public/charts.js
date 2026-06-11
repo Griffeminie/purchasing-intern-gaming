@@ -16,34 +16,9 @@ const PALETTE = [
 
 let charts = {};
 
-const CACHE_KEY      = "purchasing-tool-dashboard-cache";
-const CACHE_META_KEY = "purchasing-tool-dashboard-meta";
-
-// ─── Cache helpers ────────────────────────────────────────────────────────────
-function saveCache(data) {
-  try {
-    localStorage.setItem(CACHE_KEY,      JSON.stringify(data));
-    localStorage.setItem(CACHE_META_KEY, JSON.stringify({
-      savedAt: Date.now(),
-      rawRows: data.rawRows,
-      sheets:  data.sheetsDetected,
-    }));
-  } catch(e) { console.warn("Cache save failed:", e); }
-}
-
-function loadCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch(e) { return null; }
-}
-
-function loadCacheMeta() {
-  try {
-    const raw = localStorage.getItem(CACHE_META_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch(e) { return null; }
-}
+// ─── Cache helpers — server-side file, shared across all devices ──────────────
+// Cache lives at purchasing-tool/data/dashboard-cache.json
+// Pass ?refresh=1 to force a rebuild from Excel
 
 function fmtAge(ms) {
   const s = Math.floor(ms / 1000);
@@ -53,19 +28,25 @@ function fmtAge(ms) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function updateCacheBadge() {
-  const meta = loadCacheMeta();
-  if (!meta) return;
-  const age = Date.now() - meta.savedAt;
-
+function updateCacheBadge(data) {
   const badge = document.getElementById("cache-badge");
+  const note  = document.getElementById("data-note");
+
+  const source = data.fromCache ? (data.stale ? "stale cache" : "cache") : "live";
+  const age    = data.cachedAt ? fmtAge(Date.now() - data.cachedAt) : "unknown";
+
   if (badge) {
-    badge.textContent = `Last updated ${fmtAge(age)}`;
-    badge.style.display = "inline";
+    badge.textContent = data.fromCache
+      ? `Cached · saved ${age}`
+      : `Live · just updated`;
+    badge.style.background = data.stale ? "#3a2e0a" : (data.fromCache ? "" : "#0a2010");
+    badge.style.color      = data.stale ? "var(--yellow)" : (data.fromCache ? "" : "var(--green)");
+    badge.style.display    = "inline";
   }
 
-  const note = document.getElementById("data-note");
-  if (note) note.textContent = `${meta.rawRows ?? "?"} records · ${(meta.sheets || []).join(", ")}`;
+  if (note) {
+    note.textContent = `${data.rawRows ?? "?"} records · ${(data.sheetsDetected || []).join(", ")} · source: ${source}`;
+  }
 }
 
 // ─── Debug log ────────────────────────────────────────────────────────────────
@@ -114,27 +95,9 @@ async function loadDashboard(forceRefresh = false) {
   const logEl = document.getElementById("debug-log");
   if (logEl) logEl.innerHTML = "";
 
-  // ── Try cache first (unless forced refresh) ───────────────────────────────
-  if (!forceRefresh) {
-    const cached = loadCache();
-    if (cached) {
-      log("Loaded from local cache — instant!", "ok");
-      renderAll(cached);
-      updateCacheBadge();
+  log(forceRefresh ? "Manual refresh — rebuilding from Excel..." : "Loading dashboard...");
 
-      const meta = loadCacheMeta();
-      if (meta && Date.now() - meta.savedAt > 30 * 60 * 1000) {
-        log("Cache is over 30 minutes old — consider refreshing.", "warn");
-        toast("Showing cached data. Hit Refresh to get latest from Excel.", "info");
-      }
-      return;
-    }
-    log("No cache found — fetching from server for the first time...");
-  } else {
-    log("Manual refresh requested — fetching from server...");
-  }
-
-  // ── Show loading states ───────────────────────────────────────────────────
+  // Show loading states
   ["loading-monthly","loading-supplier","loading-status","loading-dept"].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.textContent = "Loading..."; el.style.display = "flex"; }
@@ -143,29 +106,31 @@ async function loadDashboard(forceRefresh = false) {
   const refreshBtn = document.getElementById("refresh-btn");
   if (refreshBtn) {
     refreshBtn.disabled = true;
-    refreshBtn.innerHTML = `<i data-lucide="loader" style="width:14px;height:14px;"></i> Refreshing…`;
+    refreshBtn.innerHTML = `<i data-lucide="loader" style="width:14px;height:14px;"></i> ${forceRefresh ? "Refreshing…" : "Loading…"}`;
     if (window.lucide) lucide.createIcons();
   }
 
   const note = document.getElementById("data-note");
-  if (note) note.textContent = "Fetching from Excel — this may take a moment…";
+  if (forceRefresh && note) note.textContent = "Rebuilding from Excel — this may take a moment…";
 
   try {
-    log("Fetching /api/dashboard...");
-    const res = await fetch("/api/dashboard");
+    const url = forceRefresh ? "/api/dashboard?refresh=1" : "/api/dashboard";
+    log(`Fetching ${url}...`);
+    const res = await fetch(url);
     log(`Server responded: HTTP ${res.status}`, res.ok ? "ok" : "error");
 
     if (!res.ok) {
       const text = await res.text();
-      log(`Error body: ${text.substring(0, 200)}`, "error");
-      throw new Error(`HTTP ${res.status}: ${text.substring(0, 100)}`);
+      log(`Error: ${text.substring(0, 200)}`, "error");
+      throw new Error(`HTTP ${res.status}`);
     }
 
     const data = await res.json();
     if (data.error) { log(`API error: ${data.error}`, "error"); throw new Error(data.error); }
 
+    log(`Source: ${data.fromCache ? (data.stale ? "stale cache" : "server cache") : "fresh from Excel"}`, data.fromCache ? "info" : "ok");
     log(`Raw rows: ${data.rawRows ?? "?"}`, "ok");
-    log(`Sheets detected: ${(data.sheetsDetected || []).join(", ")}`, "ok");
+    log(`Sheets: ${(data.sheetsDetected || []).join(", ")}`, "ok");
 
     const activeMonths = (data.monthlySpending || []).filter(m => m.total > 0);
     if (activeMonths.length) {
@@ -174,31 +139,21 @@ async function loadDashboard(forceRefresh = false) {
       log("WARNING: No months have spending > 0", "warn");
     }
 
-    if (data.supplierBreakdown?.length) {
-      log(`Top supplier: ${data.supplierBreakdown[0]?.name} (₱${data.supplierBreakdown[0]?.total?.toLocaleString()})`, "ok");
-    }
-
-    saveCache(data);
-    log("Saved to local cache — future loads will be instant.", "ok");
-    updateCacheBadge();
-
+    updateCacheBadge(data);
     renderAll(data);
-    toast("Dashboard updated and cached.", "success");
+
+    if (forceRefresh && !data.fromCache) {
+      toast("Dashboard refreshed and cache updated.", "success");
+    } else if (data.stale) {
+      toast("Showing stale cache — refresh failed. Try again.", "warn");
+    }
 
   } catch(e) {
     log(`FAILED: ${e.message}`, "error");
-    toast("Refresh failed — showing cached data if available.", "error");
-
-    const cached = loadCache();
-    if (cached) {
-      log("Falling back to cached data.", "warn");
-      renderAll(cached);
-      updateCacheBadge();
-    } else {
-      ["loading-monthly","loading-supplier","loading-status","loading-dept"].forEach(id => {
-        showEmpty(id, "Error — see debug log");
-      });
-    }
+    toast("Could not load dashboard — see debug log.", "error");
+    ["loading-monthly","loading-supplier","loading-status","loading-dept"].forEach(id => {
+      showEmpty(id, "Error — see debug log");
+    });
   } finally {
     if (refreshBtn) {
       refreshBtn.disabled = false;
@@ -301,7 +256,7 @@ function renderSupplierChart(supplierData) {
     type: "doughnut",
     data: {
       labels: top.map(s => s.name.length > 22 ? s.name.substring(0,20)+"…" : s.name),
-      datasets: [{ data: top.map(s => s.total), backgroundColor: PALETTE, borderColor:"#161b22", borderWidth:2, hoverOffset:6 }],
+      datasets: [{ data: top.map(s => s.total), backgroundColor: PALETTE, borderColor: PALETTE, borderWidth:0, hoverOffset:6 }],
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: "62%",
@@ -330,7 +285,7 @@ function renderStatusChart(statusCounts) {
     type: "doughnut",
     data: {
       labels,
-      datasets: [{ data:values, backgroundColor:labels.map(l=>colors[l]||"#8b949e"), borderColor:"#161b22", borderWidth:2, hoverOffset:6 }],
+      datasets: [{ data:values, backgroundColor:labels.map(l=>colors[l]||"#8b949e"), borderColor:labels.map(l=>colors[l]||"#8b949e"), borderWidth:0, hoverOffset:6 }],
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: "60%",

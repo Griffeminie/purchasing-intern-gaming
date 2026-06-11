@@ -227,155 +227,178 @@ app.post("/api/sheet/:name/add", (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── API: dashboard summary ────────────────────────────────────────────────────
+// ── Dashboard cache ────────────────────────────────────────────────────────────
+const CACHE_PATH = path.join(__dirname, "data", "dashboard-cache.json");
+
+function readCache() {
+  try {
+    if (!fs.existsSync(CACHE_PATH)) return null;
+    return JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
+  } catch(e) { return null; }
+}
+
+function writeCache(data) {
+  try {
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(data), "utf8");
+  } catch(e) { console.warn("Could not write dashboard cache:", e.message); }
+}
+
+function buildDashboardData() {
+  const allData = getAllMonthData();
+
+  const MONTH_ORDER = [
+    "JAN","FEB","MAR","APR","MAY","JUN",
+    "JUL","AUG","SEP","OCT","NOV","DEC"
+  ];
+
+  function toMonthKey(name) {
+    const u = name.toUpperCase().replace(/\s/g, "");
+    const fullNames = {
+      "JANUARY":"JAN","FEBRUARY":"FEB","MARCH":"MAR","APRIL":"APR",
+      "JUNE":"JUN","JULY":"JUL","AUGUST":"AUG","SEPTEMBER":"SEP",
+      "OCTOBER":"OCT","NOVEMBER":"NOV","DECEMBER":"DEC",
+    };
+    for (const [full, short] of Object.entries(fullNames)) {
+      if (u.includes(full)) return short;
+    }
+    for (const m of MONTH_ORDER) {
+      if (u.includes(m)) return m;
+    }
+    return name.substring(0, 3).toUpperCase();
+  }
+
+  const monthMap    = {};
+  const supplierMap = {};
+  const deptMap     = {};
+  const statusMap   = {};
+  const allRows     = [];
+
+  MONTH_ORDER.forEach(m => monthMap[m] = 0);
+
+  for (const [sheetName, rows] of Object.entries(allData)) {
+    const monthKey = toMonthKey(sheetName);
+    rows.forEach(r => {
+      const amt        = r["TOTAL AMOUNT"] > 0 ? r["TOTAL AMOUNT"] : (r["AMOUNT"] || 0);
+      const isHeaderRow = !!(r["PO NUMBER"] || r["PR NO."]);
+      const spendAmt   = isHeaderRow ? amt : 0;
+
+      if (monthMap[monthKey] !== undefined) monthMap[monthKey] += spendAmt;
+
+      const supplier = r["SUPPLIER'S NAME"] || "";
+      if (supplier && isHeaderRow) supplierMap[supplier] = (supplierMap[supplier] || 0) + spendAmt;
+
+      const dept = r["REQUESTING DEPT."] || "";
+      if (dept && isHeaderRow) deptMap[dept] = (deptMap[dept] || 0) + spendAmt;
+
+      const status = r["PURCHASE ORDER STATUS"] || "Unknown";
+      if (status) statusMap[status] = (statusMap[status] || 0) + 1;
+
+      allRows.push({ ...r, _sheet: sheetName });
+    });
+  }
+
+  const monthlySpending = MONTH_ORDER.map(m => ({ month: m, total: monthMap[m] }));
+
+  // Cost savings sheet
+  const wb = getWorkbook();
+  let savingsData = [];
+  const savingsSheet = wb.SheetNames.find(s =>
+    s.toLowerCase().includes("cost") || s.toLowerCase().includes("saving")
+  );
+  if (savingsSheet) {
+    const raw = xlsx.utils.sheet_to_json(wb.Sheets[savingsSheet], { header:1, defval:null, raw:false });
+    const hIdx = raw.findIndex(r => r && r.some(c => c && String(c).toUpperCase().includes("SUPPLIER")));
+    if (hIdx >= 0) {
+      const heads = raw[hIdx].map(h => h ? String(h).trim().toUpperCase() : "");
+      for (let i = hIdx + 1; i < raw.length; i++) {
+        const r = raw[i];
+        if (!r || !r[0] || String(r[0]).startsWith("#")) continue;
+        const get = name => {
+          const idx = heads.indexOf(name.toUpperCase());
+          const v = idx >= 0 ? r[idx] : null;
+          if (v === null || String(v).startsWith("#")) return 0;
+          return parseFloat(String(v).replace(/[^0-9.-]/g, "")) || 0;
+        };
+        savingsData.push({
+          "SUPPLIER'S NAME":    String(r[0] || ""),
+          "TOTAL AMOUNT":       get("TOTAL AMOUNT"),
+          "ORIGINAL PRICE":     get("ORIGINAL PRICE"),
+          "TOTAL COST SAVINGS": get("TOTAL COST SAVINGS"),
+        });
+      }
+    }
+  }
+  if (!savingsData.length) {
+    const sMap = {};
+    allRows.forEach(r => {
+      const s = r["SUPPLIER'S NAME"] || "Unknown";
+      if (!sMap[s]) sMap[s] = { total:0, original:0 };
+      sMap[s].total    += r["TOTAL AMOUNT"] || r["AMOUNT"] || 0;
+      sMap[s].original += r["ORIGINAL PRICE"] || 0;
+    });
+    savingsData = Object.entries(sMap).map(([name, v]) => ({
+      "SUPPLIER'S NAME":    name,
+      "TOTAL AMOUNT":       v.total,
+      "ORIGINAL PRICE":     v.original,
+      "TOTAL COST SAVINGS": Math.max(0, v.original - v.total),
+    }));
+  }
+
+  const normStatus = { Served:0, "For Delivery":0, Pending:0, Cancelled:0 };
+  Object.entries(statusMap).forEach(([k, v]) => {
+    const u = k.toLowerCase();
+    if (u.includes("served") || u.includes("complete")) normStatus["Served"] += v;
+    else if (u.includes("deliver")) normStatus["For Delivery"] += v;
+    else if (u.includes("cancel"))  normStatus["Cancelled"] += v;
+    else normStatus["Pending"] += v;
+  });
+
+  return {
+    monthlySpending,
+    supplierBreakdown: Object.entries(supplierMap)
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10),
+    deptSpending: Object.entries(deptMap)
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total),
+    statusCounts: normStatus,
+    savingsData,
+    rawRows: allRows.length,
+    sheetsDetected: Object.keys(allData),
+    cachedAt: Date.now(),
+  };
+}
+
+// ── API: dashboard — serves cache instantly, rebuilds on ?refresh=1 ───────────
 app.get("/api/dashboard", (req, res) => {
   try {
-    const allData = getAllMonthData();
+    const forceRefresh = req.query.refresh === "1";
 
-    const MONTH_ORDER = [
-      "JAN","FEB","MAR","APR","MAY","JUN",
-      "JUL","AUG","SEP","OCT","NOV","DEC"
-    ];
-
-    // Normalize sheet name to short month key — handles "MAY2026", "May 2026", "JANUARY 2026"
-    function toMonthKey(name) {
-      const u = name.toUpperCase().replace(/\s/g, "");
-      const fullNames = {
-        "JANUARY":"JAN","FEBRUARY":"FEB","MARCH":"MAR","APRIL":"APR",
-        "JUNE":"JUN","JULY":"JUL","AUGUST":"AUG","SEPTEMBER":"SEP",
-        "OCTOBER":"OCT","NOVEMBER":"NOV","DECEMBER":"DEC",
-      };
-      // Try full names first (longer match = more specific)
-      for (const [full, short] of Object.entries(fullNames)) {
-        if (u.includes(full)) return short;
+    if (!forceRefresh) {
+      const cached = readCache();
+      if (cached) {
+        console.log(`[Dashboard] Serving cache (${cached.rawRows} rows, saved ${new Date(cached.cachedAt).toLocaleTimeString()})`);
+        return res.json({ ...cached, fromCache: true });
       }
-      // Fall back to 3-letter abbreviations
-      for (const m of MONTH_ORDER) {
-        if (u.includes(m)) return m;
-      }
-      return name.substring(0, 3).toUpperCase();
+      console.log("[Dashboard] No cache found — building from Excel...");
+    } else {
+      console.log("[Dashboard] Force refresh — rebuilding from Excel...");
     }
 
-    // Monthly spending
-    const monthMap = {};
-    MONTH_ORDER.forEach(m => monthMap[m] = 0);
+    const data = buildDashboardData();
+    writeCache(data);
+    console.log(`[Dashboard] Built and cached (${data.rawRows} rows)`);
+    res.json({ ...data, fromCache: false });
 
-    const supplierMap = {};
-    const deptMap     = {};
-    const statusMap   = {};
-    const allRows     = [];
-
-    for (const [sheetName, rows] of Object.entries(allData)) {
-      const monthKey = toMonthKey(sheetName);
-
-      rows.forEach(r => {
-        // For spending totals: prefer TOTAL AMOUNT (header row of a PO)
-        // but only count it once — if TOTAL AMOUNT exists, use it; if not (sub-item row) use AMOUNT
-        // This avoids double-counting: PO total + all its line item AMOUNTs
-        const amt = r["TOTAL AMOUNT"] > 0
-          ? r["TOTAL AMOUNT"]
-          : (r["AMOUNT"] || 0);
-
-        // Only add to monthly total if this row has a PO NUMBER (header row)
-        // Sub-item rows (no PO NUMBER) contribute 0 to avoid double counting
-        const isHeaderRow = !!(r["PO NUMBER"] || r["PR NO."]);
-        const spendAmt = isHeaderRow ? amt : 0;
-
-        if (monthMap[monthKey] !== undefined) monthMap[monthKey] += spendAmt;
-
-        const supplier = r["SUPPLIER'S NAME"] || "";
-        if (supplier && isHeaderRow) supplierMap[supplier] = (supplierMap[supplier] || 0) + spendAmt;
-
-        const dept = r["REQUESTING DEPT."] || "";
-        if (dept && isHeaderRow) deptMap[dept] = (deptMap[dept] || 0) + spendAmt;
-
-        const status = r["PURCHASE ORDER STATUS"] || "Unknown";
-        if (status) statusMap[status] = (statusMap[status] || 0) + 1;
-
-        allRows.push({ ...r, _sheet: sheetName });
-      });
-    }
-
-    const monthlySpending = MONTH_ORDER.map(m => ({ month: m, total: monthMap[m] }));
-
-    // Cost savings — try dedicated sheet first, then calculate from month data
-    const wb = getWorkbook();
-    let savingsData = [];
-
-    const savingsSheet = wb.SheetNames.find(s =>
-      s.toLowerCase().includes("cost") || s.toLowerCase().includes("saving")
-    );
-
-    if (savingsSheet) {
-      const raw = xlsx.utils.sheet_to_json(wb.Sheets[savingsSheet], {
-        header: 1, defval: null, raw: false
-      });
-      // Find the header row
-      let hIdx = raw.findIndex(r => r && r.some(c => c && String(c).toUpperCase().includes("SUPPLIER")));
-      if (hIdx >= 0) {
-        const heads = raw[hIdx].map(h => h ? String(h).trim().toUpperCase() : "");
-        for (let i = hIdx + 1; i < raw.length; i++) {
-          const r = raw[i];
-          if (!r || !r[0] || String(r[0]).startsWith("#")) continue;
-          const get = name => {
-            const idx = heads.indexOf(name.toUpperCase());
-            const v = idx >= 0 ? r[idx] : null;
-            if (v === null || String(v).startsWith("#")) return 0;
-            return parseFloat(String(v).replace(/[^0-9.-]/g, "")) || 0;
-          };
-          savingsData.push({
-            "SUPPLIER'S NAME":    String(r[0] || ""),
-            "TOTAL AMOUNT":       get("TOTAL AMOUNT"),
-            "ORIGINAL PRICE":     get("ORIGINAL PRICE"),
-            "TOTAL COST SAVINGS": get("TOTAL COST SAVINGS"),
-          });
-        }
-      }
-    }
-
-    // Fallback: build savings from monthly data
-    if (!savingsData.length) {
-      const sMap = {};
-      allRows.forEach(r => {
-        const s = r["SUPPLIER'S NAME"] || "Unknown";
-        if (!sMap[s]) sMap[s] = { total: 0, original: 0 };
-        sMap[s].total    += r["TOTAL AMOUNT"] || r["AMOUNT"] || 0;
-        sMap[s].original += r["ORIGINAL PRICE"] || 0;
-      });
-      savingsData = Object.entries(sMap).map(([name, v]) => ({
-        "SUPPLIER'S NAME":    name,
-        "TOTAL AMOUNT":       v.total,
-        "ORIGINAL PRICE":     v.original,
-        "TOTAL COST SAVINGS": Math.max(0, v.original - v.total),
-      }));
-    }
-
-    // Normalise status map — group similar values
-    const normStatus = { Served: 0, "For Delivery": 0, Pending: 0, Cancelled: 0 };
-    Object.entries(statusMap).forEach(([k, v]) => {
-      const u = k.toLowerCase();
-      if (u.includes("served") || u.includes("complete")) normStatus["Served"] += v;
-      else if (u.includes("deliver")) normStatus["For Delivery"] += v;
-      else if (u.includes("cancel")) normStatus["Cancelled"] += v;
-      else normStatus["Pending"] += v;
-    });
-
-    res.json({
-      monthlySpending,
-      supplierBreakdown: Object.entries(supplierMap)
-        .map(([name, total]) => ({ name, total }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 10),
-      deptSpending: Object.entries(deptMap)
-        .map(([name, total]) => ({ name, total }))
-        .sort((a, b) => b.total - a.total),
-      statusCounts: normStatus,
-      savingsData,
-      rawRows: allRows.length,
-      sheetsDetected: Object.keys(allData),
-    });
   } catch(e) {
     console.error("Dashboard error:", e);
+    // Try to serve stale cache if build fails
+    const cached = readCache();
+    if (cached) {
+      console.warn("[Dashboard] Build failed, serving stale cache");
+      return res.json({ ...cached, fromCache: true, stale: true });
+    }
     res.status(500).json({ error: e.message });
   }
 });
@@ -396,6 +419,29 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`\n✅ Purchasing Tool running!`);
   console.log(`   Local:   http://localhost:${PORT}`);
   console.log(`   Network: http://${ip}:${PORT}  ← use this on phones\n`);
+
+  // Pre-build dashboard cache in the background so first visitor doesn't wait.
+  // If a cache already exists and is less than 60 minutes old, skip the rebuild.
+  const existing = readCache();
+  const cacheAge = existing ? (Date.now() - (existing.cachedAt || 0)) : Infinity;
+  const sixtyMin = 60 * 60 * 1000;
+
+  if (existing && cacheAge < sixtyMin) {
+    const mins = Math.floor(cacheAge / 60000);
+    console.log(`[Dashboard] Cache is ${mins}m old — skipping rebuild. Hit Refresh in the browser to force one.\n`);
+  } else {
+    console.log("[Dashboard] Building dashboard cache from monitoring.xlsx...");
+    // Run async so the server starts immediately and isn't blocked
+    setImmediate(() => {
+      try {
+        const data = buildDashboardData();
+        writeCache(data);
+        console.log(`[Dashboard] Cache ready — ${data.rawRows} rows from ${data.sheetsDetected.join(", ")}\n`);
+      } catch(e) {
+        console.warn(`[Dashboard] Cache build failed: ${e.message} — will retry on first request.\n`);
+      }
+    });
+  }
 });
 
 // ── API: Export canvass sheet ─────────────────────────────────────────────────
