@@ -420,28 +420,14 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`   Local:   http://localhost:${PORT}`);
   console.log(`   Network: http://${ip}:${PORT}  ← use this on phones\n`);
 
-  // Pre-build dashboard cache in the background so first visitor doesn't wait.
-  // If a cache already exists and is less than 60 minutes old, skip the rebuild.
   const existing = readCache();
-  const cacheAge = existing ? (Date.now() - (existing.cachedAt || 0)) : Infinity;
-  const sixtyMin = 60 * 60 * 1000;
-
-  if (existing && cacheAge < sixtyMin) {
-    const mins = Math.floor(cacheAge / 60000);
-    console.log(`[Dashboard] Cache is ${mins}m old — skipping rebuild. Hit Refresh in the browser to force one.\n`);
-  } else {
-    console.log("[Dashboard] Building dashboard cache from monitoring.xlsx...");
-    // Run async so the server starts immediately and isn't blocked
-    setImmediate(() => {
-      try {
-        const data = buildDashboardData();
-        writeCache(data);
-        console.log(`[Dashboard] Cache ready — ${data.rawRows} rows from ${data.sheetsDetected.join(", ")}\n`);
-      } catch(e) {
-        console.warn(`[Dashboard] Cache build failed: ${e.message} — will retry on first request.\n`);
-      }
-    });
-  }
+    if (existing) {
+      const mins = Math.floor((Date.now() - (existing.cachedAt || 0)) / 60000);
+      console.log(`\n[Dashboard] Cache found (${existing.rawRows} rows, ${mins}m old) — ready.`);
+      console.log(`[Dashboard] Hit Refresh on the dashboard to rebuild from Excel.\n`);
+    } else {
+      console.log(`\n[Dashboard] No cache yet — open the dashboard and hit Refresh to build it.\n`);
+    }
 });
 
 // ── API: Export canvass sheet ─────────────────────────────────────────────────
