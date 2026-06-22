@@ -7,7 +7,11 @@
   <link rel="stylesheet" href="style.css" />
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
-    .home-body { min-height: 100vh; display: flex; flex-direction: column; }
+    .home-body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
 
     .hero {
       flex: 1;
@@ -15,7 +19,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 60px 24px;
+      padding: 20px 24px 0;
     }
 
     .hero-badge {
@@ -28,12 +32,12 @@
       border: 1px solid #1a3a5a;
       padding: 4px 12px;
       border-radius: 99px;
-      margin-bottom: 28px;
+      margin-bottom: 12px;
     }
     body.light .hero-badge { background: #ddf4ff; border-color: #aed9fb; }
 
     .hero h1 {
-      font-size: clamp(28px, 5vw, 44px);
+      font-size: clamp(20px, 3.5vw, 36px);
       font-weight: 700;
       text-align: center;
       letter-spacing: -0.03em;
@@ -45,33 +49,33 @@
 
     .hero-sub {
       color: var(--text-2);
-      font-size: 15px;
+      font-size: 13px;
       text-align: center;
-      max-width: 420px;
-      margin-top: 14px;
-      line-height: 1.6;
+      max-width: 400px;
+      margin-top: 8px;
+      line-height: 1.5;
     }
 
     .action-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-top: 48px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 5px;
+      margin-top: 20px;
       width: 100%;
-      max-width: 540px;
+      max-width: 100%;
     }
 
     .action-card {
       background: var(--bg-2);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 28px 24px;
+      padding: 14px 16px;
       text-decoration: none;
       color: var(--text);
       display: flex;
       flex-direction: column;
       align-items: flex-start;
-      gap: 12px;
+      gap: 6px;
       transition: all 0.2s;
       position: relative;
       overflow: hidden;
@@ -95,51 +99,107 @@
     .action-card:hover::before { transform: scaleX(1); }
 
     .action-icon {
-      width: 44px; height: 44px;
-      border-radius: 10px;
+      width: 34px; height: 34px;
+      border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
-      color: var(--accent-2);
     }
-    .action-icon.blue { background: #0a1f3a; }
-    .action-icon.green { background: #0a2010; color: var(--green); }
-    body.light .action-icon.blue { background: #ddf4ff; }
-    body.light .action-icon.green { background: #d1f7d6; }
+    .action-icon.blue   { background: #0a1f3a; color: var(--accent-2); }
+    .action-icon.green  { background: #0a2010; color: var(--green); }
+    .action-icon.amber  { background: #2a1a00; color: #f0a030; }
+    .action-icon.purple { background: #1a0a3a; color: #a080f0; }
+    .action-icon.coral  { background: #2a0a0a; color: #f07060; }
+    body.light .action-icon.blue   { background: #ddf4ff; color: #1a6fa8; }
+    body.light .action-icon.green  { background: #d1f7d6; color: #166534; }
+    body.light .action-icon.amber  { background: #fef3d0; color: #b45309; }
+    body.light .action-icon.purple { background: #ede9fe; color: #6d28d9; }
+    body.light .action-icon.coral  { background: #fee2e2; color: #b91c1c; }
 
-    .action-card h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-    .action-card p { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+    .action-card h2 { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .action-card p  { font-size: 11px; color: var(--text-2); line-height: 1.4; margin: 0; flex: 1; }
 
     .action-card .arrow {
-      margin-top: auto;
+      margin-top: 4px;
       color: var(--text-3);
       transition: color 0.2s, transform 0.2s;
       display: flex;
     }
     .action-card:hover .arrow { color: var(--accent-2); transform: translateX(4px); }
 
-    .status-bar {
-      background: var(--bg-2);
+
+
+    /* ── SealGuard-style footer ── */
+    .page-footer {
+      text-align: center;
+      padding: 28px 24px 20px;
+      color: #99aabb;
+      font-size: 12px;
+      margin-top: 32px;
+    }
+
+    .footer-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .footer-brand-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-2);
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      margin-bottom: 14px;
+      font-size: 12px;
+    }
+
+    .footer-links a {
+      color: var(--text-3);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: var(--text-2); }
+    .footer-links .sep { color: var(--border); }
+
+    .footer-divider {
+      border: none;
       border-top: 1px solid var(--border);
-      padding: 12px 24px;
+      margin: 0 auto 14px;
+      max-width: 480px;
+    }
+
+    .footer-copy {
+      font-size: 11px;
+      color: var(--text-3);
+      line-height: 1.8;
+    }
+
+    .footer-status {
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: 8px;
+      font-family: var(--font-mono);
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      font-size: 12px;
-      color: var(--text-3);
-      font-family: var(--font-mono);
+      justify-content: center;
+      gap: 6px;
     }
 
     .status-dot {
       display: inline-block;
-      width: 7px; height: 7px;
+      width: 6px; height: 6px;
       border-radius: 50%;
       background: var(--text-3);
-      margin-right: 6px;
-      vertical-align: middle;
+      transition: background 0.3s;
     }
-    .status-dot.online { background: var(--green); box-shadow: 0 0 0 3px #1a3a1e; }
-    body.light .status-dot.online { box-shadow: 0 0 0 3px #d1f7d6; }
+    .status-dot.online { background: var(--green); }
 
-    @media (max-width: 480px) {
+    @media (max-width: 700px) {
       .action-grid { grid-template-columns: 1fr; max-width: 320px; }
     }
   </style>
@@ -160,6 +220,7 @@
         <a href="canvass.html"><i data-lucide="table-2" style="width:14px;height:14px;"></i> <span>Canvass</span></a>
         <a href="dashboard.html"><i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> <span>Dashboard</span></a>
         <a href="calibrate.html"><i data-lucide="move" style="width:14px;height:14px;"></i> <span>Calibrate</span></a>
+        <a href="suppliers.html"><i data-lucide="building-2" style="width:14px;height:14px;"></i> <span>Suppliers</span></a>
       </nav>
       <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode">
         <i data-lucide="moon" style="width:16px;height:16px;" id="theme-icon"></i>
@@ -177,47 +238,107 @@
     </p>
 
     <div class="action-grid">
+
       <a href="scanner.html" class="action-card">
         <div class="action-icon blue">
-          <i data-lucide="scan-line" style="width:22px;height:22px;"></i>
+          <i data-lucide="scan-line" style="width:18px;height:18px;"></i>
         </div>
         <h2>PO Scanner</h2>
         <p>Scan a physical PO, auto-extract fields, and check against the monitoring file.</p>
-        <span class="arrow"><i data-lucide="arrow-right" style="width:18px;height:18px;"></i></span>
+        <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
 
       <a href="dashboard.html" class="action-card">
         <div class="action-icon green">
-          <i data-lucide="bar-chart-2" style="width:22px;height:22px;"></i>
+          <i data-lucide="bar-chart-2" style="width:18px;height:18px;"></i>
         </div>
         <h2>Dashboard</h2>
         <p>Visualize monthly spending, supplier breakdown, cost savings, and PO status.</p>
-        <span class="arrow"><i data-lucide="arrow-right" style="width:18px;height:18px;"></i></span>
+        <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
+
+      <a href="canvass.html" class="action-card">
+        <div class="action-icon amber">
+          <i data-lucide="sparkles" style="width:18px;height:18px;"></i>
+        </div>
+        <h2>Canvass</h2>
+        <p>AI-powered canvass sheet generation — skip the manual work and get it done fast.</p>
+        <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
+      </a>
+
+      <a href="suppliers.html" class="action-card">
+        <div class="action-icon purple">
+          <i data-lucide="building-2" style="width:18px;height:18px;"></i>
+        </div>
+        <h2>Suppliers</h2>
+        <p>Browse all supplier contacts — names, companies, supplies, and details at a glance.</p>
+        <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
+      </a>
+
+      <a href="calibrate.html" class="action-card">
+        <div class="action-icon coral">
+          <i data-lucide="move" style="width:18px;height:18px;"></i>
+        </div>
+        <h2>Calibrate</h2>
+        <p>Tune the OCR scanner zones so the PO Scanner reads your documents accurately.</p>
+        <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
+      </a>
+
     </div>
   </main>
 
-  <footer class="status-bar">
-    <div style="display:flex;align-items:center;">
-      <span class="status-dot" id="status-dot"></span>
-      <span id="server-status">Connecting to server...</span>
+  <footer class="page-footer">
+    <div class="footer-brand">
+      <i data-lucide="clipboard-list" style="width:14px;height:14px;color:#3b5bdb;"></i>
+      <span class="footer-brand-name">PURCHASE/TOOL</span>
     </div>
-    <div id="excel-info">monitoring.xlsx</div>
+
+    <div class="footer-links">
+      <a href="scanner.html">PO Scanner</a>
+      <span class="sep">|</span>
+      <a href="canvass.html">Canvass</a>
+      <span class="sep">|</span>
+      <a href="dashboard.html">Dashboard</a>
+      <span class="sep">|</span>
+      <a href="suppliers.html">Suppliers</a>
+      <span class="sep">|</span>
+      <a href="calibrate.html">Calibrate</a>
+    </div>
+
+    <hr class="footer-divider" />
+
+    <p class="footer-copy">
+      &copy; <span id="footer-year"></span> Purchasing Department. All rights reserved.<br>
+      This tool is for internal use only. Unauthorized access is prohibited.
+    </p>
+
+    <p style="font-size:11px; color:var(--text-3); margin-top:10px; line-height:1.8;">
+      Developed by <strong style="color:var(--text-2);">Griffin Gil De Leon</strong> &amp; <strong style="color:var(--text-2);">Jerihco Lacbayen</strong><br>
+      IT Interns &mdash; Mapúa Malayan Colleges Laguna
+    </p>
+
+    <div class="footer-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-label">Connecting to server...</span>
+      <span>&bull;</span>
+      <span id="excel-info">monitoring.xlsx</span>
+    </div>
   </footer>
 
   <script>
     lucide.createIcons();
+    document.getElementById('footer-year').textContent = new Date().getFullYear();
 
     fetch('/api/sheets')
       .then(r => r.json())
       .then(data => {
-        document.getElementById('server-status').textContent = 'Server online';
+        document.getElementById('status-label').textContent = 'System operational';
         document.getElementById('status-dot').classList.add('online');
         document.getElementById('excel-info').textContent =
           'monitoring.xlsx · ' + data.sheets.length + ' sheets';
       })
       .catch(() => {
-        document.getElementById('server-status').textContent = 'Server offline — run: node server.js';
+        document.getElementById('status-label').textContent = 'Server offline — run: node server.js';
         document.getElementById('status-dot').style.background = 'var(--red)';
       });
   </script>
