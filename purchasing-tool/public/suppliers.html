@@ -256,7 +256,7 @@
     .drop-zone h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
     .drop-zone p { font-size: 12px; color: var(--text-3); }
 
-    .csv-preview {
+    .import-preview {
       margin-top: 16px;
       background: var(--bg-3);
       border: 1px solid var(--border);
@@ -268,8 +268,8 @@
       max-height: 140px;
       overflow-y: auto;
     }
-    .csv-preview .preview-row { padding: 2px 0; border-bottom: 1px solid var(--border-2); }
-    .csv-preview .preview-row:last-child { border-bottom: none; }
+    .import-preview .preview-row { padding: 2px 0; border-bottom: 1px solid var(--border-2); }
+    .import-preview .preview-row:last-child { border-bottom: none; }
 
     .modal-actions {
       display: flex;
@@ -366,6 +366,60 @@
       .stats-row { grid-template-columns: 1fr 1fr; }
       .search-wrap input { width: 160px; }
     }
+    /* Contact cell */
+    .contact-cell-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+    .num-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .num-pill {
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 7px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.12s;
+      white-space: nowrap;
+    }
+    .num-pill:hover { border-color: var(--accent); color: var(--text); }
+    .num-pill.selected {
+      background: rgba(31,111,235,0.12);
+      border-color: var(--accent);
+      color: var(--accent-2);
+      font-weight: 600;
+    }
+    .contact-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-sans);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 99px;
+      border: 1px solid;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: opacity 0.12s;
+    }
+    .action-btn:hover { opacity: 0.75; }
+    .viber-btn { color: #7360f2; border-color: #7360f2; background: rgba(115,96,242,0.08); }
+    .call-btn  { color: var(--accent); border-color: var(--accent); background: rgba(31,111,235,0.08); }
   </style>
 </head>
 <body>
@@ -398,6 +452,7 @@
     <div class="page-header">
       <div>
         <div class="page-title">Supplier List <span id="total-count"></span></div>
+        <div id="sync-status" style="font-size:11px;color:var(--text-3);margin-top:3px;font-family:var(--font-mono);"></div>
       </div>
       <div class="toolbar">
         <div class="search-wrap">
@@ -420,45 +475,71 @@
             <i data-lucide="columns" style="width:13px;height:13px;"></i> Columns
           </button>
           <div class="cols-dropdown" id="cols-dropdown">
+            <label><input type="checkbox" data-col-toggle="NO" checked> No</label>
+            <label><input type="checkbox" data-col-toggle="COMPANY" checked> Company</label>
+            <label><input type="checkbox" data-col-toggle="CATEGORY" checked> Category</label>
             <label><input type="checkbox" data-col-toggle="CATEGORY2"> Sub-Category</label>
             <label><input type="checkbox" data-col-toggle="OLD_NAME"> Old Name</label>
+            <label><input type="checkbox" data-col-toggle="CURRENT_NAME" checked> Current Name</label>
+            <label><input type="checkbox" data-col-toggle="CONTACT_NAME" checked> Contact</label>
             <label><input type="checkbox" data-col-toggle="ADDRESS"> Address</label>
+            <label><input type="checkbox" data-col-toggle="REGION" checked> Region</label>
+            <label><input type="checkbox" data-col-toggle="CONTACT_DETAILS" checked> Contact No.</label>
+            <label><input type="checkbox" data-col-toggle="EMAIL" checked> E-mail</label>
             <label><input type="checkbox" data-col-toggle="EMAIL2"> E-mail 2</label>
+            <label><input type="checkbox" data-col-toggle="STATUS" checked> Status</label>
           </div>
         </div>
+        <button class="btn btn-outline" id="refresh-btn" title="Re-read data/supplier-masterlist.xlsx on the server">
+          <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Refresh
+        </button>
         <button class="btn btn-outline" id="export-btn">
           <i data-lucide="download" style="width:13px;height:13px;"></i> Export
         </button>
-        <button class="btn btn-primary" id="import-btn">
-          <i data-lucide="upload" style="width:13px;height:13px;"></i> Import CSV
+        <button class="btn btn-outline" id="import-btn">
+          <i data-lucide="upload" style="width:13px;height:13px;"></i> Import JSON
         </button>
       </div>
     </div>
 
-    <!-- Stats -->
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Total Suppliers</div>
-        <div class="stat-value" id="stat-total">—</div>
-        <div class="stat-sub">all records</div>
+    <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--font-mono);">Message Template</div>
+        <button class="btn btn-outline" id="clear-msg-btn" style="padding:3px 10px;font-size:11px;">
+          <i data-lucide="x" style="width:11px;height:11px;"></i> Clear
+        </button>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Active</div>
-        <div class="stat-value" id="stat-active" style="color:var(--green)">—</div>
-        <div class="stat-sub">status: active</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Categories</div>
-        <div class="stat-value" id="stat-cats">—</div>
-        <div class="stat-sub">unique types</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Regions</div>
-        <div class="stat-value" id="stat-regions">—</div>
-        <div class="stat-sub">covered</div>
+      <div style="display:flex;gap:12px;">
+        <div style="flex:1;">
+          <div style="font-size:10px;color:var(--text-3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Template — use *COMPANYNAME* as placeholder</div>
+          <textarea
+            id="viber-message"
+            placeholder="e.g. Good morning, is this *COMPANYNAME*? Kami po ay galing sa California Clothing."
+            style="width:100%;box-sizing:border-box;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--font-sans);font-size:13px;padding:10px 12px;resize:vertical;min-height:100px;outline:none;transition:border-color 0.15s;line-height:1.5;"
+            onfocus="this.style.borderColor='var(--accent)'"
+            onblur="this.style.borderColor='var(--border)'"
+          ></textarea>
+        </div>
+        <div style="flex:1;">
+          <div style="font-size:10px;color:var(--text-3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Preview — last message sent to clipboard</div>
+          <div style="position:relative;">
+            <textarea
+              id="viber-preview"
+              readonly
+              style="width:100%;box-sizing:border-box;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-2);font-family:var(--font-sans);font-size:13px;padding:10px 12px;padding-bottom:36px;min-height:100px;line-height:1.5;resize:none;outline:none;"
+              placeholder="Press a Viber button to see the message here…"
+            ></textarea>
+            <button
+              id="copy-preview-btn"
+              onclick="copyPreview()"
+              style="position:absolute;bottom:8px;right:8px;display:inline-flex;align-items:center;gap:4px;font-family:var(--font-sans);font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;border:1px solid #7360f2;color:#7360f2;background:rgba(115,96,242,0.08);cursor:pointer;"
+            >
+              <i data-lucide="copy" style="width:11px;height:11px;"></i> Copy
+            </button>
+          </div>
+        </div>
       </div>
     </div>
-
     <!-- Table -->
     <div class="table-wrap">
       <div class="table-scroll">
@@ -468,15 +549,15 @@
               <th data-col="NO" class="sorted" style="width:46px;">No <span class="sort-icon">↑</span></th>
               <th data-col="COMPANY">Company <span class="sort-icon">↕</span></th>
               <th data-col="CATEGORY">Category <span class="sort-icon">↕</span></th>
-              <th data-col="CATEGORY2" class="col-hide">Sub-Category <span class="sort-icon">↕</span></th>
-              <th data-col="OLD_NAME" class="col-hide">Old Name <span class="sort-icon">↕</span></th>
+              <th data-col="CATEGORY2">Sub-Category <span class="sort-icon">↕</span></th>
+              <th data-col="OLD_NAME">Old Name <span class="sort-icon">↕</span></th>
               <th data-col="CURRENT_NAME">Current Name <span class="sort-icon">↕</span></th>
               <th data-col="CONTACT_NAME">Contact <span class="sort-icon">↕</span></th>
-              <th data-col="ADDRESS" class="col-hide">Address <span class="sort-icon">↕</span></th>
+              <th data-col="ADDRESS">Address <span class="sort-icon">↕</span></th>
               <th data-col="REGION">Region <span class="sort-icon">↕</span></th>
               <th data-col="CONTACT_DETAILS">Contact No. <span class="sort-icon">↕</span></th>
               <th data-col="EMAIL">E-mail <span class="sort-icon">↕</span></th>
-              <th data-col="EMAIL2" class="col-hide">E-mail 2 <span class="sort-icon">↕</span></th>
+              <th data-col="EMAIL2">E-mail 2 <span class="sort-icon">↕</span></th>
               <th data-col="STATUS">Status <span class="sort-icon">↕</span></th>
             </tr>
           </thead>
@@ -485,7 +566,7 @@
               <div class="empty-state">
                 <div class="icon"><i data-lucide="building-2" style="width:40px;height:40px;"></i></div>
                 <h3>No suppliers yet</h3>
-                <p>Click <strong>Import CSV</strong> to upload your supplier list.</p>
+                <p>Click <strong>Import JSON</strong> to load your supplier list.</p>
               </div>
             </td></tr>
           </tbody>
@@ -507,23 +588,23 @@
   <div class="modal-overlay" id="import-modal">
     <div class="modal">
       <div class="modal-header">
-        <div class="modal-title">Import Supplier CSV</div>
+        <div class="modal-title">Import Supplier JSON</div>
         <button class="modal-close" id="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
       </div>
 
       <div id="step-upload">
         <div class="drop-zone" id="drop-zone">
-          <div class="dz-icon"><i data-lucide="file-spreadsheet" style="width:36px;height:36px;"></i></div>
-          <h3>Drop your CSV file here</h3>
-          <p>or click to browse — .csv files only</p>
-          <input type="file" id="csv-file-input" accept=".csv" style="display:none;" />
+          <div class="dz-icon"><i data-lucide="file-json-2" style="width:36px;height:36px;"></i></div>
+          <h3>Drop your supplier JSON file here</h3>
+          <p>or click to browse — .json files only<br>Generate this file from the masterlist with <code>xlsx_to_json.py</code></p>
+          <input type="file" id="json-file-input" accept=".json,application/json" style="display:none;" />
         </div>
-        <div id="csv-preview" class="csv-preview" style="display:none;"></div>
+        <div id="import-preview" class="import-preview" style="display:none;"></div>
       </div>
 
       <div id="step-map" style="display:none;">
         <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;">
-          Map your CSV columns to the supplier fields. Detected <strong id="detected-cols">0</strong> columns, <strong id="detected-rows">0</strong> rows.
+          Detected <strong id="detected-rows">0</strong> supplier records<span id="detected-source"></span>. This will replace the current supplier list.
         </p>
         <div class="col-mapping" id="col-mapping-fields"></div>
       </div>
@@ -552,9 +633,9 @@
     let currentPage  = 1;
     const PAGE_SIZE  = 50;
 
-    let csvHeaders = [];
-    let csvRows    = [];
-    let importStep = 'upload'; // upload → map → done
+    let jsonRecords = [];
+    let jsonMeta     = {};
+    let importStep   = 'upload'; // upload → preview → done
 
     const FIELD_LABELS = {
       NO:              'No',
@@ -615,6 +696,152 @@
       currentPage = 1;
       renderPage();
     }
+    function parseNumbers(raw) {
+  if (!raw) return [];
+  // Split on space, apostrophe, slash, comma — common separators from Excel paste
+  return raw
+    .split(/[\s''\/,]+/)
+    .map(n => n.trim().replace(/[^\d+]/g, ''))   // strip non-digits except leading +
+    .filter(n => n.length >= 7)                   // skip empties / garbage
+    .map(n => {
+      // Restore leading zero if Excel stripped it (7–11 digit PH numbers starting without 0 or +)
+      if (/^\d{9,10}$/.test(n) && !n.startsWith('0') && !n.startsWith('+')) {
+        n = '0' + n;
+      }
+      return n;
+    });
+}
+
+    function e164(num) {
+      // Convert 09xxxxxxxxx → +639xxxxxxxxx for Viber / tel:
+      if (num.startsWith('0')) return '+63' + num.slice(1);
+      if (num.startsWith('+')) return num;
+      return '+63' + num;
+    }
+
+    function renderContactCell(raw, supplier) {
+      const nums = parseNumbers(raw);
+      if (!nums.length) return `<span style="color:var(--text-3);font-family:var(--font-mono);font-size:12px;">${raw || '—'}</span>`;
+
+      const uid         = 'cc_' + Math.random().toString(36).slice(2, 8);
+      const intl0       = e164(nums[0]);
+      const companyName = (supplier?.CURRENT_NAME || supplier?.COMPANY || '').replace(/"/g, '&quot;');
+
+      const pills = nums.map((n, i) =>
+        `<button class="num-pill${i === 0 ? ' selected' : ''}" data-uid="${uid}" data-idx="${i}" data-num="${n}" onclick="selectNum('${uid}', ${i})">${n}</button>`
+      ).join('');
+
+      return `
+        <div class="contact-cell-wrap" id="${uid}">
+          <div class="num-pills">${pills}</div>
+          <div class="contact-actions">
+            <a class="action-btn viber-btn" id="${uid}_viber" href="#" data-intl="${intl0}" data-company="${companyName}" onclick="openViber('${uid}'); return false;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.02 2 11c0 3.08 1.56 5.81 3.97 7.5L5 21l2.62-1.31C9.01 20.54 10.47 21 12 21c5.52 0 10-4.02 10-9S17.52 2 12 2zm1 13h-2v-2h2v2zm0-4h-2V7h2v4z"/></svg>
+              Viber
+            </a>
+            <a class="action-btn call-btn" id="${uid}_call" href="tel:${intl0}">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.26h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.82a16 16 0 0 0 6 6l1.27-.84a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              Call
+            </a>
+          </div>
+        </div>
+      `;
+    }
+
+
+
+
+    function selectNum(uid, idx) {
+      document.querySelectorAll(`.num-pill[data-uid="${uid}"]`).forEach(btn => {
+        btn.classList.toggle('selected', parseInt(btn.dataset.idx) === idx);
+      });
+      const num  = document.querySelector(`.num-pill[data-uid="${uid}"][data-idx="${idx}"]`).dataset.num;
+      const intl = e164(num);
+      document.getElementById(`${uid}_viber`).dataset.intl = intl;
+      document.getElementById(`${uid}_call`).href  = `tel:${intl}`;
+    }
+
+    function openViber(uid) {
+      const btn         = document.querySelector(`.num-pill.selected[data-uid="${uid}"]`);
+      const intl        = btn ? e164(btn.dataset.num) : document.getElementById(`${uid}_viber`).dataset.intl;
+      const companyName = document.getElementById(`${uid}_viber`).dataset.company || '';
+
+      let msg = (document.getElementById('viber-message')?.value || '').trim();
+      msg = msg.replace(/\*COMPANYNAME\*/gi, companyName);
+
+      // Update preview
+      const preview = document.getElementById('viber-preview');
+      if (preview) {
+        preview.value = msg;
+        preview.style.borderColor = 'var(--accent)';
+        preview.style.color = 'var(--text)';
+        setTimeout(() => { preview.style.borderColor = 'var(--border)'; }, 1500);
+      }
+
+      // Copy (same as pressing the Copy button)
+      copyPreview();
+
+      // Open Viber
+      const a = document.createElement('a');
+      a.href = `viber://chat?number=${encodeURIComponent(intl)}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+
+
+
+
+
+
+    function copyPreview() {
+      const preview = document.getElementById('viber-preview');
+      if (!preview?.value) return;
+
+      // Method 1: select the textarea and execCommand
+      preview.focus();
+      preview.setSelectionRange(0, preview.value.length);
+      const success = document.execCommand('copy');
+
+      if (success) {
+        showToast('Copied! Paste in Viber with Ctrl+V');
+      } else {
+        // Method 2: navigator.clipboard as fallback
+        navigator.clipboard.writeText(preview.value).then(() => {
+          showToast('Copied! Paste in Viber with Ctrl+V');
+        }).catch(() => {
+          // Method 3: just highlight it so they can Ctrl+C manually
+          showToast('Press Ctrl+C now — text is selected!');
+        });
+      }
+    }
+    function showToast(text) {
+      let toast = document.getElementById('viber-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'viber-toast';
+        toast.style.cssText = `
+          position:fixed;bottom:28px;left:50%;
+          transform:translateX(-50%) translateY(10px);
+          background:#7360f2;color:#fff;
+          font-family:var(--font-sans);font-size:13px;font-weight:500;
+          padding:10px 20px;border-radius:99px;
+          opacity:0;transition:opacity 0.2s,transform 0.2s;
+          z-index:9999;pointer-events:none;white-space:nowrap;
+        `;
+        document.body.appendChild(toast);
+      }
+      toast.textContent = text;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(-50%) translateY(0)';
+      clearTimeout(toast._hide);
+      toast._hide = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(10px)';
+      }, 3000);
+    }
+
 
     function renderPage() {
       const tbody = document.getElementById('supplier-tbody');
@@ -630,7 +857,7 @@
           <div class="empty-state">
             <div class="icon"><i data-lucide="search" style="width:36px;height:36px;"></i></div>
             <h3>${allSuppliers.length ? 'No results' : 'No suppliers yet'}</h3>
-            <p>${allSuppliers.length ? 'Try adjusting your search or filters.' : 'Click <strong>Import CSV</strong> to upload your supplier list.'}</p>
+            <p>${allSuppliers.length ? 'Try adjusting your search or filters.' : 'Click <strong>Import JSON</strong> to load your supplier list.'}</p>
           </div>
         </td></tr>`;
         lucide.createIcons();
@@ -638,24 +865,23 @@
         return;
       }
 
-      const h = (col, content, cls='') => hiddenCols.has(col) ? '' :
-        `<td class="${cls}">${content}</td>`;
+      const cell = (col, content, cls='') => hiddenCols.has(col) ? '' : `<td class="${cls}">${content}</td>`;
 
       tbody.innerHTML = page.map(s => `
         <tr>
-          <td class="mono dim">${s.NO || ''}</td>
-          <td><strong>${s.COMPANY || ''}</strong></td>
-          <td>${s.CATEGORY || ''}</td>
-          ${h('CATEGORY2', s.CATEGORY2 || '', 'dim')}
-          ${h('OLD_NAME',   s.OLD_NAME   || '', 'dim')}
-          <td>${s.CURRENT_NAME || ''}</td>
-          <td>${s.CONTACT_NAME || ''}</td>
-          ${h('ADDRESS', `<span style="max-width:200px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${s.ADDRESS||''}">${s.ADDRESS||''}</span>`, 'dim')}
-          <td><span class="badge badge-grey">${s.REGION || ''}</span></td>
-          <td class="mono" style="font-size:12px;">${s.CONTACT_DETAILS || ''}</td>
-          <td style="font-size:12px;"><a href="mailto:${s.EMAIL}" style="color:var(--accent-2);text-decoration:none;">${s.EMAIL || ''}</a></td>
-          ${h('EMAIL2', `<a href="mailto:${s.EMAIL2||''}" style="color:var(--accent-2);text-decoration:none;">${s.EMAIL2||''}</a>`)}
-          <td>${statusBadge(s.STATUS)}</td>
+          ${cell('NO', `<span class="mono dim">${s.NO || ''}</span>`)}
+          ${cell('COMPANY', `<strong>${s.COMPANY || ''}</strong>`)}
+          ${cell('CATEGORY', s.CATEGORY || '')}
+          ${cell('CATEGORY2', s.CATEGORY2 || '', 'dim')}
+          ${cell('OLD_NAME', s.OLD_NAME || '', 'dim')}
+          ${cell('CURRENT_NAME', s.CURRENT_NAME || '')}
+          ${cell('CONTACT_NAME', s.CONTACT_NAME || '')}
+          ${cell('ADDRESS', `<span style="max-width:200px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${s.ADDRESS||''}">${s.ADDRESS||''}</span>`, 'dim')}
+          ${cell('REGION', `<span class="badge badge-grey">${s.REGION || ''}</span>`)}
+          ${cell('CONTACT_DETAILS', `<div style="vertical-align:middle;">${renderContactCell(s.CONTACT_DETAILS, s)}</div>`)}
+          ${cell('EMAIL', `<a href="mailto:${s.EMAIL}" style="color:var(--accent-2);text-decoration:none;font-size:12px;">${s.EMAIL || ''}</a>`)}
+          ${cell('EMAIL2', `<a href="mailto:${s.EMAIL2||''}" style="color:var(--accent-2);text-decoration:none;font-size:12px;">${s.EMAIL2||''}</a>`)}
+          ${cell('STATUS', statusBadge(s.STATUS))}
         </tr>
       `).join('');
 
@@ -696,13 +922,7 @@
     }
 
     function updateStats() {
-      const active = allSuppliers.filter(s => String(s.STATUS||'').toUpperCase() === 'ACTIVE').length;
-      const cats   = new Set(allSuppliers.map(s => s.CATEGORY).filter(Boolean)).size;
-      const regs   = new Set(allSuppliers.map(s => s.REGION).filter(Boolean)).size;
-      document.getElementById('stat-total').textContent   = allSuppliers.length;
-      document.getElementById('stat-active').textContent  = active;
-      document.getElementById('stat-cats').textContent    = cats;
-      document.getElementById('stat-regions').textContent = regs;
+
     }
 
     function populateFilters() {
@@ -761,7 +981,7 @@
     // ── Import Modal ───────────────────────────────────────────────────────────
     const importModal  = document.getElementById('import-modal');
     const dropZone     = document.getElementById('drop-zone');
-    const fileInput    = document.getElementById('csv-file-input');
+    const fileInput    = document.getElementById('json-file-input');
     const modalNext    = document.getElementById('modal-next');
 
     document.getElementById('import-btn').addEventListener('click', openModal);
@@ -770,15 +990,17 @@
 
     function openModal() {
       importStep = 'upload';
-      csvHeaders = []; csvRows = [];
+      jsonRecords = []; jsonMeta = {};
       document.getElementById('step-upload').style.display = '';
       document.getElementById('step-map').style.display    = 'none';
       document.getElementById('step-done').style.display   = 'none';
-      document.getElementById('csv-preview').style.display = 'none';
-      document.getElementById('csv-preview').innerHTML     = '';
+      document.getElementById('import-preview').style.display = 'none';
+      document.getElementById('import-preview').innerHTML     = '';
       fileInput.value = '';
       modalNext.textContent = 'Next →';
       modalNext.disabled = true;
+      modalNext.style.display = '';
+      document.getElementById('modal-cancel').textContent = 'Cancel';
       importModal.classList.add('open');
       lucide.createIcons();
     }
@@ -802,51 +1024,47 @@
     });
 
     function handleFile(file) {
-      if (!file.name.endsWith('.csv')) { alert('Please select a .csv file.'); return; }
+      if (!file.name.toLowerCase().endsWith('.json')) { alert('Please select a .json file.'); return; }
       const reader = new FileReader();
       reader.onload = e => {
-        parseCSV(e.target.result);
+        try {
+          parseSupplierJSON(e.target.result);
+        } catch (err) {
+          alert('Could not read that file as supplier JSON:\n' + err.message);
+        }
       };
       reader.readAsText(file);
     }
 
-    function parseCSV(text) {
-      // Handle CRLF and LF
-      const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
-      if (lines.length < 2) { alert('CSV appears empty.'); return; }
+    function parseSupplierJSON(text) {
+      const data = JSON.parse(text);
 
-      // Simple CSV parser respecting quoted fields
-      function parseLine(line) {
-        const result = [];
-        let cur = '', inQ = false;
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (ch === '"') {
-            if (inQ && line[i+1] === '"') { cur += '"'; i++; }
-            else inQ = !inQ;
-          } else if (ch === ',' && !inQ) {
-            result.push(cur.trim()); cur = '';
-          } else {
-            cur += ch;
-          }
-        }
-        result.push(cur.trim());
-        return result;
+      // Accept either { suppliers: [...] } (output of xlsx_to_json.py) or a raw array
+      const rawList = Array.isArray(data) ? data : data.suppliers;
+      if (!Array.isArray(rawList)) {
+        throw new Error('Expected a "suppliers" array (or a top-level array) of records.');
       }
 
-      csvHeaders = parseLine(lines[0]);
-      csvRows    = lines.slice(1).map(parseLine).filter(r => {
-        // Must have at least 3 non-empty cells to be a real data row
-        return r.filter(c => c && c.trim()).length >= 3;
+      const fieldKeys = Object.keys(FIELD_LABELS);
+      jsonRecords = rawList.map((row, i) => {
+        const obj = {};
+        fieldKeys.forEach(field => { obj[field] = row[field] != null ? String(row[field]) : ''; });
+        if (!obj.NO) obj.NO = String(i + 1);
+        return obj;
       });
 
+      jsonMeta = {
+        source_file: data.source_file || '',
+        generated_at: data.generated_at || '',
+      };
+
       // Preview
-      const preview = document.getElementById('csv-preview');
+      const preview = document.getElementById('import-preview');
       preview.style.display = '';
-      const previewRows = csvRows.slice(0, 5);
-      preview.innerHTML = `<div class="preview-row" style="color:var(--accent-2);font-weight:600;">${csvHeaders.join(' | ')}</div>` +
-        previewRows.map(r => `<div class="preview-row">${r.join(' | ')}</div>`).join('') +
-        (csvRows.length > 5 ? `<div class="preview-row" style="color:var(--text-3);">… and ${csvRows.length - 5} more rows</div>` : '');
+      const previewRows = jsonRecords.slice(0, 5);
+      preview.innerHTML = `<div class="preview-row" style="color:var(--accent-2);font-weight:600;">${fieldKeys.map(f => FIELD_LABELS[f]).join(' | ')}</div>` +
+        previewRows.map(r => `<div class="preview-row">${fieldKeys.map(f => r[f]).join(' | ')}</div>`).join('') +
+        (jsonRecords.length > 5 ? `<div class="preview-row" style="color:var(--text-3);">… and ${jsonRecords.length - 5} more rows</div>` : '');
 
       modalNext.disabled = false;
       lucide.createIcons();
@@ -855,64 +1073,35 @@
     // Next button logic
     modalNext.addEventListener('click', () => {
       if (importStep === 'upload') {
-        showMapStep();
+        showPreviewStep();
       } else if (importStep === 'map') {
         doImport();
       }
     });
 
-    function showMapStep() {
+    function showPreviewStep() {
       importStep = 'map';
       document.getElementById('step-upload').style.display = 'none';
       document.getElementById('step-map').style.display    = '';
-      document.getElementById('detected-cols').textContent = csvHeaders.length;
-      document.getElementById('detected-rows').textContent = csvRows.length;
+      document.getElementById('detected-rows').textContent = jsonRecords.length;
+      document.getElementById('detected-source').textContent =
+        jsonMeta.source_file ? ` from ${jsonMeta.source_file}${jsonMeta.generated_at ? ' (generated ' + jsonMeta.generated_at + ')' : ''}` : '';
 
-      // Auto-detect mapping
       const fieldKeys = Object.keys(FIELD_LABELS);
-      const autoMap   = {};
-      fieldKeys.forEach(field => {
-        const lbl = FIELD_LABELS[field].toLowerCase();
-        const idx = csvHeaders.findIndex(h => {
-          const hh = h.toLowerCase();
-          return hh === lbl || hh.includes(lbl) || lbl.includes(hh);
-        });
-        autoMap[field] = idx >= 0 ? csvHeaders[idx] : '';
-      });
-
+      const sample = jsonRecords.slice(0, 5);
       const container = document.getElementById('col-mapping-fields');
-      container.innerHTML = fieldKeys.map(field => `
-        <label>${FIELD_LABELS[field]}</label>
-        <select id="map-${field}">
-          <option value="">(skip)</option>
-          ${csvHeaders.map(h => `<option value="${h}"${autoMap[field] === h ? ' selected' : ''}>${h}</option>`).join('')}
-        </select>
-      `).join('');
+      container.innerHTML = `
+        <div class="import-preview" style="max-height:200px;">
+          <div class="preview-row" style="color:var(--accent-2);font-weight:600;">${fieldKeys.map(f => FIELD_LABELS[f]).join(' | ')}</div>
+          ${sample.map(r => `<div class="preview-row">${fieldKeys.map(f => r[f] || '').join(' | ')}</div>`).join('')}
+        </div>
+      `;
 
       modalNext.textContent = 'Import →';
     }
 
     function doImport() {
-      const fieldKeys = Object.keys(FIELD_LABELS);
-      const mapping   = {};
-      fieldKeys.forEach(field => {
-        mapping[field] = document.getElementById(`map-${field}`)?.value || '';
-      });
-
-      const imported = csvRows.map((row, i) => {
-        const obj = {};
-        fieldKeys.forEach(field => {
-          const col = mapping[field];
-          if (!col) { obj[field] = ''; return; }
-          const colIdx = csvHeaders.indexOf(col);
-          obj[field] = colIdx >= 0 ? (row[colIdx] || '') : '';
-        });
-        if (!obj.NO) obj.NO = String(i + 1);
-        return obj;
-      });
-
-      // Merge: replace all or append?
-      allSuppliers = imported;
+      allSuppliers = jsonRecords;
       saveSuppliers(allSuppliers);
       updateStats();
       populateFilters();
@@ -922,51 +1111,76 @@
       importStep = 'done';
       document.getElementById('step-map').style.display  = 'none';
       document.getElementById('step-done').style.display = '';
-      document.getElementById('done-msg').textContent    = `${imported.length} suppliers imported successfully.`;
+      document.getElementById('done-msg').textContent    = `${allSuppliers.length} suppliers imported successfully.`;
       modalNext.style.display   = 'none';
       document.getElementById('modal-cancel').textContent = 'Close';
       lucide.createIcons();
     }
-
     // ── Column toggle ──────────────────────────────────────────────────────────
     const colsBtn      = document.getElementById('cols-btn');
     const colsDropdown = document.getElementById('cols-dropdown');
+
+    // Default hidden cols
+    const DEFAULT_HIDDEN = new Set(['CATEGORY2', 'OLD_NAME', 'ADDRESS', 'EMAIL2']);
+    const hiddenCols = new Set();
+
+    // Load saved state or fall back to defaults
+    function loadColState() {
+      try {
+        const saved = localStorage.getItem('supplier_col_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          hiddenCols.clear();
+          // Apply saved state to checkboxes
+          document.querySelectorAll('[data-col-toggle]').forEach(cb => {
+            const col = cb.dataset.colToggle;
+            const isHidden = parsed.hidden.includes(col);
+            cb.checked = !isHidden;
+            if (isHidden) hiddenCols.add(col);
+          });
+        } else {
+          // No saved state — apply defaults
+          document.querySelectorAll('[data-col-toggle]').forEach(cb => {
+            const col = cb.dataset.colToggle;
+            const isHidden = DEFAULT_HIDDEN.has(col);
+            cb.checked = !isHidden;
+            if (isHidden) hiddenCols.add(col);
+          });
+        }
+      } catch(e) {
+        // Fall back to defaults on error
+        document.querySelectorAll('[data-col-toggle]').forEach(cb => {
+          const col = cb.dataset.colToggle;
+          const isHidden = DEFAULT_HIDDEN.has(col);
+          cb.checked = !isHidden;
+          if (isHidden) hiddenCols.add(col);
+        });
+      }
+    }
+
+    function saveColState() {
+      const hidden = [...hiddenCols];
+      localStorage.setItem('supplier_col_state', JSON.stringify({ hidden }));
+    }
 
     colsBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       colsDropdown.classList.toggle('open');
     });
-    document.addEventListener('click', () => colsDropdown.classList.remove('open'));
+    document.addEventListener('click', (e) => {
+      if (!colsDropdown.contains(e.target) && e.target !== colsBtn && !colsBtn.contains(e.target)) {
+        colsDropdown.classList.remove('open');
+      }
+    });
 
     document.querySelectorAll('[data-col-toggle]').forEach(cb => {
       cb.addEventListener('change', () => {
-        const col = cb.dataset.colToggle;
-        const show = cb.checked;
-        // Toggle th
-        document.querySelectorAll(`th[data-col="${col}"]`).forEach(el => {
-          el.style.display = show ? '' : 'none';
-        });
-        // Toggle td — use CSS class approach via a style tag
-        let styleEl = document.getElementById(`col-style-${col}`);
-        if (!styleEl) {
-          styleEl = document.createElement('style');
-          styleEl.id = `col-style-${col}`;
-          document.head.appendChild(styleEl);
-        }
-        // The td cells have class col-hide; when checked we override display
-        styleEl.textContent = show
-          ? `td.col-hide[data-c="${col}"], th[data-col="${col}"] { display: table-cell !important; }`
-          : '';
-        // Simpler: re-render with updated visibility
         applyColVisibility();
+        saveColState();
       });
     });
 
-    // Track which cols are visible
-    const hiddenCols = new Set(['CATEGORY2', 'OLD_NAME', 'ADDRESS', 'EMAIL2']);
-
     function applyColVisibility() {
-      // Rebuild hidden cols set
       hiddenCols.clear();
       document.querySelectorAll('[data-col-toggle]').forEach(cb => {
         if (!cb.checked) hiddenCols.add(cb.dataset.colToggle);
@@ -981,8 +1195,12 @@
     allSuppliers = loadSuppliers();
     updateStats();
     populateFilters();
+    loadColState(); 
     applyFilters();
     lucide.createIcons();
+    document.getElementById('clear-msg-btn').addEventListener('click', () => {
+    document.getElementById('viber-message').value = '';
+  });
   </script>
 </body>
 </html>
