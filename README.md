@@ -100,3 +100,41 @@ ITEMS/SERVICES | ORIGINAL PRICE | TOTAL COST SAVINGS
 # Auto-restart server on file changes
 npm run dev   # uses nodemon
 ```
+
+---
+## Sharing Your Tool Outside the Office WiFi (ngrok)
+
+If you need to access the dashboard/scanner from outside the office network (e.g. testing from home, sharing with someone off-site), you can use ngrok to create a temporary public URL.
+
+**Before doing anything below, make sure your local server is already running** (`node server.js`, with the ✅ message showing). ngrok just tunnels to your local server — it doesn't start it for you.
+
+1. Make sure your server is running locally first (see Quick Start above)
+2. In a **separate terminal**, run:
+```bash
+   ngrok http 3000
+```
+3. ngrok will print a public URL like `https://abcd1234.ngrok-free.app` — this is what you share
+4. Keep both terminals open (server + ngrok) for as long as you need the link to work
+5. Closing either terminal kills the connection
+
+---
+## Troubleshooting
+
+### ngrok: "connection actively refused" error
+Traffic successfully made it to the ngrok agent, but the agent failed to establish
+
+a connection to the upstream web service at http://localhost:3000.
+
+dial tcp [::1]:3000: connectex: No connection could be made because the target
+
+machine actively refused it.
+This means ngrok itself is working fine — it just can't find anything running on port 3000 to connect to. Almost always this means **the server isn't actually running yet**. Fix:
+1. Check that `node server.js` is running and you see the ✅ message *before* you start ngrok
+2. If it's running and you still get this error, try forcing IPv4 instead of `localhost`:
+```bash
+   ngrok http 127.0.0.1:3000
+```
+3. Double check nothing else is occupying port 3000:
+```bash
+   netstat -ano | findstr :3000
+```
