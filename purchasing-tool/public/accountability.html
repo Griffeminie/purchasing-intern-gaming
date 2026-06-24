@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accountability Checker · Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    .page-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+    }
+
+    /* ── Tabs ── */
+    .tab-bar {
+      display: flex;
+      gap: 2px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px;
+    }
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: -1px;
+      font-family: var(--font-sans);
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      color: var(--accent-2);
+      border-bottom-color: var(--accent-2);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      text-align: center;
+    }
+    .stat-num {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--text);
+    }
+    .stat-num.green { color: var(--green); }
+    .stat-num.red   { color: var(--red); }
+    .stat-num.amber { color: var(--yellow); }
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-family: var(--font-mono);
+      margin-top: 4px;
+    }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 1.5px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.15s, background 0.15s;
+      margin-bottom: 12px;
+    }
+    .upload-zone:hover {
+      border-color: var(--accent);
+      background: var(--bg-3);
+    }
+    .upload-zone input {
+      position: absolute; inset: 0;
+      opacity: 0; cursor: pointer;
+      width: 100%; height: 100%;
+    }
+    .upload-zone .uz-icon {
+      color: var(--text-3);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: center;
+    }
+    .upload-zone p {
+      font-size: 13px;
+      color: var(--text-2);
+    }
+    .upload-zone .uz-hint {
+      font-size: 11px;
+      color: var(--text-3);
+      font-family: var(--font-mono);
+      margin-top: 4px;
+    }
+
+    /* ── Prompt box ── */
+    .prompt-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      font-size: 12px;
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    .prompt-box:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    /* ── Progress ── */
+    .progress-wrap { display: none; margin: 12px 0; }
+    .progress-bar-track {
+      height: 3px;
+      background: var(--bg-3);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent-2);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .progress-msg {
+      font-size: 12px;
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      margin-top: 6px;
+      text-align: center;
+    }
+
+    /* ── JSON preview ── */
+    .json-preview {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-2);
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      line-height: 1.55;
+      margin-bottom: 12px;
+    }
+
+    /* ── Manual paste ── */
+    .manual-textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text);
+      line-height: 1.6;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .manual-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .manual-textarea::placeholder { color: var(--text-3); }
+
+    /* ── img preview ── */
+    #img-preview {
+      display: none;
+      width: 100%;
+      max-height: 240px;
+      object-fit: contain;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    /* ── Results table badge overrides ── */
+    .badge-match  { background: #1a3a1e; color: var(--green); border: 1px solid #2d5a32; }
+    .badge-miss   { background: #3a1a1a; color: var(--red);   border: 1px solid #5a2d2d; }
+    .badge-warn   { background: #3a2e0a; color: var(--yellow);border: 1px solid #5a480f; }
+    body.light .badge-match { background: #d1f7d6; color: #1a7f37; border-color: #a7e9b2; }
+    body.light .badge-miss  { background: #ffd7d5; color: #cf222e; border-color: #ffb3ae; }
+    body.light .badge-warn  { background: #fff3cd; color: #9a6700; border-color: #ffe69c; }
+
+    /* ── Section label ── */
+    .section-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .status-inline {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-3);
+    }
+    .status-inline.ok  { color: var(--green); }
+    .status-inline.err { color: var(--red); }
+
+    @media (max-width: 640px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .two-col   { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="topnav">
+    <a href="index.html" class="brand">
+      <div class="brand-icon">
+        <i data-lucide="activity" style="width:16px;height:16px;color:#fff;"></i>
+      </div>
+      <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+    </a>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <nav>
+        <a href="index.html"><i data-lucide="home" style="width:14px;height:14px;"></i> <span>Home</span></a>
+        <a href="scanner.html"><i data-lucide="scan" style="width:14px;height:14px;"></i> <span>Scanner</span></a>
+        <a href="canvass.html"><i data-lucide="sparkles" style="width:14px;height:14px;"></i> <span>Canvass</span></a>
+        <a href="dashboard.html"><i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> <span>Dashboard</span></a>
+        <a href="calibrate.html"><i data-lucide="move" style="width:14px;height:14px;"></i> <span>Calibrate</span></a>
+        <a href="suppliers.html"><i data-lucide="building-2" style="width:14px;height:14px;"></i> <span>Suppliers</span></a>
+        <a href="accountability.html" class="active"><i data-lucide="shield-check" style="width:14px;height:14px;"></i> <span>Accountability</span></a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode">
+        <i data-lucide="moon" style="width:16px;height:16px;" id="theme-icon"></i>
+      </button>
+    </div>
+  </nav>
+  <script src="theme.js"></script>
+  <div class="page-wrap">
+    <div class="page-header">
+      <div class="eyebrow">Asset Monitoring · Form Verification</div>
+      <h1>Custodian Items Accountability Checker</h1>
+      <p>Scan a physical accountability form with Gemini Vision and verify contact persons against the Excel asset monitoring records.</p>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-num" id="s-total">0</div>
+        <div class="stat-label">Stores Loaded</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num green" id="s-contact">0</div>
+        <div class="stat-label">With Contacts</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num amber" id="s-no-contact">0</div>
+        <div class="stat-label">No Contact</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="s-checked">0</div>
+        <div class="stat-label">Verified</div>
+      </div>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('setup')">
+        <i data-lucide="settings" style="width:14px;height:14px;"></i> Setup
+      </button>
+      <button class="tab-btn" onclick="switchTab('records')">
+        <i data-lucide="database" style="width:14px;height:14px;"></i> Records
+      </button>
+      <button class="tab-btn" onclick="switchTab('scan')">
+        <i data-lucide="camera" style="width:14px;height:14px;"></i> Scan Form
+      </button>
+      <button class="tab-btn" onclick="switchTab('results')">
+        <i data-lucide="list-checks" style="width:14px;height:14px;"></i> Results
+      </button>
+    </div>
+
+    <!-- ── SETUP ── -->
+    <div id="tab-setup" class="tab-panel active">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i data-lucide="key" style="width:13px;height:13px;display:inline;"></i> Gemini API Key</span>
+          </div>
+          <div class="section-eyebrow">API Key (session only — never stored)</div>
+          <div class="btn-row" style="margin-bottom:8px;">
+            <input type="password" class="form-input" id="gemini-key" placeholder="AIza..." style="flex:1;" />
+            <button class="btn btn-secondary" onclick="saveKey()">
+              <i data-lucide="check" style="width:14px;height:14px;"></i> Save
+            </button>
+          </div>
+          <p class="small muted">Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent-2);">aistudio.google.com</a>.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i data-lucide="file-spreadsheet" style="width:13px;height:13px;display:inline;"></i> Asset Monitoring File</span>
+          </div>
+          <div class="upload-zone">
+            <input type="file" accept=".xlsx,.xls" onchange="loadExcel(this)" />
+            <div class="uz-icon"><i data-lucide="upload" style="width:24px;height:24px;"></i></div>
+            <p id="excel-status">Drop or click to upload XLSX</p>
+            <p class="uz-hint">Reads B (M3 Code) · C (Store Name) · F (Contact) — rows 3–89</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RECORDS ── -->
+    <div id="tab-records" class="tab-panel">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Store Records</span>
+          <input type="text" class="form-input" id="record-search" placeholder="Search store, M3 code, or contact..." style="width:260px;" oninput="filterRecords()" />
+        </div>
+        <div class="table-wrap">
+          <div id="records-body">
+            <div style="padding:32px;text-align:center;color:var(--text-3);font-family:var(--font-mono);font-size:13px;">Upload an Excel file in Setup first.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCAN ── -->
+    <div id="tab-scan" class="tab-panel">
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <span class="card-title"><i data-lucide="camera" style="width:13px;height:13px;display:inline;"></i> Upload Form Photo</span>
+        </div>
+        <div class="upload-zone">
+          <input type="file" accept="image/*" onchange="loadImage(this)" />
+          <div class="uz-icon"><i data-lucide="image" style="width:24px;height:24px;"></i></div>
+          <p id="img-status">Drop or click to upload a photo of the accountability form</p>
+        </div>
+        <img id="img-preview" alt="Form preview" />
+
+        <div class="section-eyebrow">Gemini Extraction Prompt (editable)</div>
+        <div class="prompt-box" id="gemini-prompt" contenteditable="true">Extract all rows from this accountability form into a JSON array. Each object must have these exact keys:
+- "store_name": the store name exactly as written
+- "m3_code": the M3 code or store code if visible (null if not present)
+- "accountable_person": the full name of the accountable/custodian employee
+
+Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
+[{"store_name":"CSI Dagupan 10016","m3_code":"10016","accountable_person":"Janette Ferrer"}]</div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" id="scan-btn" onclick="runScan()" disabled>
+            <i data-lucide="scan-line" style="width:14px;height:14px;"></i> Scan with Gemini
+          </button>
+          <button class="btn btn-secondary" onclick="copyPrompt()">
+            <i data-lucide="copy" style="width:14px;height:14px;"></i> Copy Prompt
+          </button>
+        </div>
+
+        <div class="progress-wrap" id="scan-progress">
+          <div class="progress-bar-track"><div class="progress-bar-fill" id="prog-bar"></div></div>
+          <div class="progress-msg" id="prog-msg">Sending to Gemini...</div>
+        </div>
+      </div>
+
+      <!-- Extracted JSON -->
+      <div class="card" id="scan-result-card" style="display:none;margin-bottom:16px;">
+        <div class="card-header">
+          <span class="card-title"><i data-lucide="code" style="width:13px;height:13px;display:inline;"></i> Extracted JSON</span>
+          <span class="small muted" id="scan-summary"></span>
+        </div>
+        <div class="json-preview" id="json-preview"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="runCheck()">
+            <i data-lucide="shield-check" style="width:14px;height:14px;"></i> Run Verification
+          </button>
+          <button class="btn btn-secondary" onclick="copyJSON()">
+            <i data-lucide="copy" style="width:14px;height:14px;"></i> Copy JSON
+          </button>
+        </div>
+      </div>
+
+      <!-- Manual paste fallback -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i data-lucide="clipboard" style="width:13px;height:13px;display:inline;"></i> Manual JSON Paste</span>
+          <span class="badge badge-grey" style="font-size:10px;">Quota fallback</span>
+        </div>
+        <p class="small muted" style="margin-bottom:12px;">Hit your Gemini quota? Ask Claude or ChatGPT to extract the form using the prompt above, then paste the JSON here.</p>
+        <div class="section-eyebrow">Paste JSON Array</div>
+        <textarea id="manual-json" class="manual-textarea" rows="6"
+          placeholder='[{"store_name":"CSI Dagupan 10016","m3_code":"10016","accountable_person":"Janette Ferrer"}]'></textarea>
+        <div class="btn-row" style="margin-top:10px;">
+          <button class="btn btn-secondary" onclick="loadManualJSON()">
+            <i data-lucide="arrow-right" style="width:14px;height:14px;"></i> Use This JSON
+          </button>
+          <span class="status-inline" id="manual-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RESULTS ── -->
+    <div id="tab-results" class="tab-panel">
+      <div class="stats-row" id="results-stats" style="display:none;">
+        <div class="stat-card">
+          <div class="stat-num" id="r-total">0</div>
+          <div class="stat-label">Entries Checked</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num green" id="r-ok">0</div>
+          <div class="stat-label">Names Match</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num red" id="r-err">0</div>
+          <div class="stat-label">Mismatches</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num amber" id="r-warn">0</div>
+          <div class="stat-label">Not Found / Missing</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Verification Results</span>
+          <button class="btn btn-secondary" id="export-btn" style="display:none;" onclick="exportJSON()">
+            <i data-lucide="download" style="width:14px;height:14px;"></i> Export JSON
+          </button>
+        </div>
+        <div class="table-wrap">
+          <div id="results-body">
+            <div style="padding:32px;text-align:center;color:var(--text-3);font-family:var(--font-mono);font-size:13px;">Run a scan first to see results here.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toasts"></div>
+
+  <script>
+    lucide.createIcons();
+
+    let geminiKey = '';
+    let storeRecords = [];
+    let scannedData = [];
+    let verificationResults = [];
+
+    /* ── Tab switching ── */
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const tabs = ['setup','records','scan','results'];
+      document.querySelectorAll('.tab-btn')[tabs.indexOf(tab)].classList.add('active');
+      document.getElementById('tab-' + tab).classList.add('active');
+      if (tab === 'records') renderRecords(storeRecords);
+      lucide.createIcons();
+    }
+
+    /* ── Toast ── */
+    function toast(msg, type = 'info') {
+      const icons = { info: 'info', success: 'check-circle', error: 'alert-circle', warn: 'alert-triangle' };
+      const el = document.createElement('div');
+      el.className = `toast toast-${type === 'warn' ? 'warn' : type}`;
+      el.innerHTML = `<i data-lucide="${icons[type]}" style="width:16px;height:16px;flex-shrink:0;"></i><span>${msg}</span>`;
+      document.getElementById('toasts').appendChild(el);
+      lucide.createIcons();
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    /* ── Setup ── */
+    function saveKey() {
+      const v = document.getElementById('gemini-key').value.trim();
+      if (!v) { toast('Enter a Gemini API key.', 'warn'); return; }
+      geminiKey = v;
+      checkScanReady();
+      toast('API key saved for this session.', 'success');
+    }
+
+    function updateStats() {
+      const withContact = storeRecords.filter(r => r.contact_person).length;
+      document.getElementById('s-total').textContent = storeRecords.length;
+      document.getElementById('s-contact').textContent = withContact;
+      document.getElementById('s-no-contact').textContent = storeRecords.length - withContact;
+      document.getElementById('s-checked').textContent = verificationResults.length;
+    }
+
+    function loadExcel(input) {
+      const file = input.files[0];
+      if (!file) return;
+      document.getElementById('excel-status').textContent = 'Reading ' + file.name + '...';
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const parsed = [];
+          for (let r = 3; r <= 90; r++) {
+            const m3 = ws['B'+r] ? String(ws['B'+r].v).trim() : null;
+            const store = ws['C'+r] ? String(ws['C'+r].v).trim() : null;
+            const contact = ws['F'+r] ? String(ws['F'+r].v).trim() : null;
+            if (m3 || store) parsed.push({ m3_code: m3, store_name: store, contact_person: contact || null });
+          }
+          storeRecords = parsed;
+          updateStats();
+          document.getElementById('excel-status').textContent = '✓ ' + file.name;
+          toast(parsed.length + ' store records loaded.', 'success');
+        } catch(err) {
+          document.getElementById('excel-status').textContent = 'Error: ' + err.message;
+          toast('Failed to read Excel: ' + err.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    /* ── Records tab ── */
+    function renderRecords(list) {
+      if (!list.length) {
+        document.getElementById('records-body').innerHTML =
+          '<div style="padding:32px;text-align:center;color:var(--text-3);font-family:var(--font-mono);font-size:13px;">No records loaded.</div>';
+        return;
+      }
+      let html = '<table><thead><tr><th>M3 Code</th><th>Store Name</th><th>Contact Person</th></tr></thead><tbody>';
+      list.forEach(r => {
+        const contact = r.contact_person
+          ? `<span style="color:var(--green);">${esc(r.contact_person)}</span>`
+          : `<span style="color:var(--text-3);">—</span>`;
+        html += `<tr><td class="mono small">${esc(r.m3_code||'—')}</td><td>${esc(r.store_name||'—')}</td><td>${contact}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      document.getElementById('records-body').innerHTML = html;
+    }
+
+    function filterRecords() {
+      const q = document.getElementById('record-search').value.toLowerCase();
+      renderRecords(storeRecords.filter(r =>
+        (r.store_name||'').toLowerCase().includes(q) ||
+        (r.m3_code||'').toLowerCase().includes(q) ||
+        (r.contact_person||'').toLowerCase().includes(q)
+      ));
+    }
+
+    /* ── Scan tab ── */
+    let imageBase64 = null, imageMime = 'image/jpeg';
+
+    function loadImage(input) {
+      const file = input.files[0];
+      if (!file) return;
+      imageMime = file.type || 'image/jpeg';
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        imageBase64 = e.target.result.split(',')[1];
+        const prev = document.getElementById('img-preview');
+        prev.src = e.target.result;
+        prev.style.display = 'block';
+        document.getElementById('img-status').textContent = '✓ ' + file.name;
+        checkScanReady();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function checkScanReady() {
+      document.getElementById('scan-btn').disabled = !(geminiKey && imageBase64);
+    }
+
+    function copyPrompt() {
+      navigator.clipboard.writeText(document.getElementById('gemini-prompt').innerText)
+        .then(() => toast('Prompt copied to clipboard.', 'success'));
+    }
+
+    function copyJSON() {
+      navigator.clipboard.writeText(document.getElementById('json-preview').textContent)
+        .then(() => toast('JSON copied to clipboard.', 'success'));
+    }
+
+    async function runScan() {
+      if (!geminiKey) { toast('Save your Gemini API key first.', 'warn'); return; }
+      if (!imageBase64) { toast('Upload a form photo first.', 'warn'); return; }
+
+      document.getElementById('scan-progress').style.display = 'block';
+      document.getElementById('scan-result-card').style.display = 'none';
+      document.getElementById('scan-btn').disabled = true;
+      setProgress(15, 'Sending image to Gemini Vision...');
+
+      const prompt = document.getElementById('gemini-prompt').innerText;
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [
+                { inline_data: { mime_type: imageMime, data: imageBase64 } },
+                { text: prompt }
+              ]}],
+              generationConfig: { temperature: 0.1 }
+            })
+          }
+        );
+        setProgress(70, 'Processing response...');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || 'Gemini API error ' + res.status);
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        scannedData = JSON.parse(raw.replace(/```json|```/g, '').trim());
+        setProgress(100, 'Extraction complete.');
+        document.getElementById('scan-result-card').style.display = 'block';
+        document.getElementById('scan-summary').textContent = scannedData.length + ' entries extracted';
+        document.getElementById('json-preview').textContent = JSON.stringify(scannedData, null, 2);
+        toast(scannedData.length + ' entries extracted from form.', 'success');
+      } catch(err) {
+        setProgress(0, 'Error: ' + err.message);
+        toast('Scan failed: ' + err.message, 'error');
+      } finally {
+        checkScanReady();
+        lucide.createIcons();
+      }
+    }
+
+    function setProgress(pct, msg) {
+      document.getElementById('prog-bar').style.width = pct + '%';
+      document.getElementById('prog-msg').textContent = msg;
+    }
+
+    function loadManualJSON() {
+      const raw = document.getElementById('manual-json').value.trim();
+      const status = document.getElementById('manual-status');
+      if (!raw) { status.textContent = 'Nothing pasted.'; status.className = 'status-inline err'; return; }
+      try {
+        const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
+        if (!Array.isArray(parsed)) throw new Error('Must be a JSON array.');
+        scannedData = parsed;
+        document.getElementById('scan-result-card').style.display = 'block';
+        document.getElementById('scan-summary').textContent = parsed.length + ' entries loaded manually';
+        document.getElementById('json-preview').textContent = JSON.stringify(scannedData, null, 2);
+        status.textContent = '✓ ' + parsed.length + ' entries loaded';
+        status.className = 'status-inline ok';
+        toast(parsed.length + ' entries loaded from paste.', 'success');
+      } catch(err) {
+        status.textContent = 'Invalid JSON: ' + err.message;
+        status.className = 'status-inline err';
+        toast('Invalid JSON: ' + err.message, 'error');
+      }
+    }
+
+    /* ── Verification ── */
+    function normName(n) {
+      return (n||'').toLowerCase().replace(/\./g,'').replace(/\s+/g,' ').trim();
+    }
+
+    function findRecord(scanned) {
+      const code = scanned.m3_code ? String(scanned.m3_code).trim() : null;
+      if (code) {
+        const r = storeRecords.find(x => x.m3_code === code);
+        if (r) return r;
+      }
+      const sn = normName(scanned.store_name);
+      const byExact = storeRecords.find(x => normName(x.store_name) === sn);
+      if (byExact) return byExact;
+      const words = sn.split(' ').filter(w => w.length > 3);
+      return storeRecords.find(x => words.some(w => normName(x.store_name).includes(w))) || null;
+    }
+
+    function compareNames(excel, form) {
+      if (!excel && !form) return { status: 'na',   note: 'No contact in either source' };
+      if (!excel)          return { status: 'warn', note: 'No contact in Excel — cannot verify' };
+      if (!form)           return { status: 'warn', note: 'No name on physical form' };
+      const n1 = normName(excel), n2 = normName(form);
+      if (n1 === n2) return { status: 'ok', note: 'Exact match' };
+      const p1 = n1.split(' '), p2 = n2.split(' ');
+      if (p1.filter(w => p2.includes(w) && w.length > 1).length >= 2) return { status: 'ok', note: 'Match (middle initial may differ)' };
+      if (p1[0] === p2[0] && p1[p1.length-1] === p2[p2.length-1]) return { status: 'ok', note: 'First + last name match' };
+      return { status: 'err', note: `Mismatch — Excel: "${excel}" / Form: "${form}"` };
+    }
+
+    function runCheck() {
+      if (!scannedData.length) { toast('No scanned data. Run a scan or paste JSON first.', 'warn'); return; }
+      verificationResults = scannedData.map(entry => {
+        const record = findRecord(entry);
+        const nameResult = record
+          ? compareNames(record.contact_person, entry.accountable_person)
+          : { status: 'warn', note: 'Store not found in Excel records' };
+        return { scanned: entry, record, nameResult };
+      });
+
+      const ok   = verificationResults.filter(r => r.nameResult.status === 'ok').length;
+      const err  = verificationResults.filter(r => r.nameResult.status === 'err').length;
+      const warn = verificationResults.filter(r => ['warn','na'].includes(r.nameResult.status)).length;
+
+      document.getElementById('results-stats').style.display = 'grid';
+      document.getElementById('r-total').textContent = verificationResults.length;
+      document.getElementById('r-ok').textContent = ok;
+      document.getElementById('r-err').textContent = err;
+      document.getElementById('r-warn').textContent = warn;
+      document.getElementById('export-btn').style.display = 'inline-flex';
+
+      let html = '<table><thead><tr><th>Store (Form)</th><th>M3 Code</th><th>Excel Contact</th><th>Form Name</th><th>Status</th></tr></thead><tbody>';
+      verificationResults.forEach(r => {
+        const s = r.nameResult.status;
+        const badge = s === 'ok'
+          ? `<span class="badge badge-match">Match</span>`
+          : s === 'err'
+          ? `<span class="badge badge-miss">Mismatch</span>`
+          : `<span class="badge badge-warn">Check</span>`;
+        const excelContact = r.record?.contact_person
+          ? esc(r.record.contact_person)
+          : '<span style="color:var(--text-3);">—</span>';
+        const formName = r.scanned.accountable_person
+          ? esc(r.scanned.accountable_person)
+          : '<span style="color:var(--text-3);">—</span>';
+        const m3 = esc(r.scanned.m3_code || r.record?.m3_code || '—');
+        html += `<tr title="${esc(r.nameResult.note)}">
+          <td class="small">${esc(r.scanned.store_name||'—')}</td>
+          <td class="mono small">${m3}</td>
+          <td class="small">${excelContact}</td>
+          <td class="small">${formName}</td>
+          <td>${badge}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      document.getElementById('results-body').innerHTML = html;
+      updateStats();
+      switchTab('results');
+      toast(`Verification done — ${ok} match, ${err} mismatch, ${warn} flagged.`, err > 0 ? 'warn' : 'success');
+    }
+
+    function exportJSON() {
+      const blob = new Blob([JSON.stringify(verificationResults, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'accountability_check_' + new Date().toISOString().slice(0,10) + '.json';
+      a.click();
+    }
+
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body>
+</html>
