@@ -16,3 +16,9 @@ Thumbs.db
 
 # Uploads
 uploads/
+
+#images that shouldnt be here
+*.jpg
+*.jpeg
+*.png
+*.gif
