@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canvass Sheet · Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    body { min-height:100vh; display:flex; flex-direction:column; }
+    .page-wrap { flex:1; max-width:1200px; margin:0 auto; padding:28px 20px 80px; width:100%; box-sizing:border-box; }
+
+    /* ── Steps ──────────────────────────────────────────────── */
+    .steps { display:flex; gap:0; margin-bottom:28px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .step  { flex:1; padding:10px 16px; display:flex; align-items:center; gap:10px; font-size:13px; color:var(--text-3); background:var(--bg-2); border-right:1px solid var(--border); }
+    .step:last-child { border-right:none; }
+    .step.active { background:var(--bg-3); color:var(--text); }
+    .step.done   { color:var(--green); }
+    .step-num { width:22px; height:22px; border-radius:50%; border:1px solid currentColor; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:10px; flex-shrink:0; }
+    .step.done .step-num { background:var(--green); border-color:var(--green); color:#000; }
+
+    /* ── Cards ──────────────────────────────────────────────── */
+    .c-card { background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:22px; margin-bottom:18px; }
+    .c-card-title { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-2); margin-bottom:16px; display:flex; align-items:center; gap:8px; justify-content:space-between; }
+    .c-card-title-left { display:flex; align-items:center; gap:8px; }
+
+    /* ── Form fields ────────────────────────────────────────── */
+    .header-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+    .f-label { display:block; font-size:11px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--text-3); margin-bottom:5px; }
+    .f-input {
+      width:100%; background:var(--bg-3); border:1px solid var(--border); color:var(--text);
+      border-radius:7px; padding:8px 11px; font-size:13px; outline:none;
+      transition:border-color .2s; box-sizing:border-box; font-family:inherit;
+    }
+    .f-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+    .f-input::placeholder { color:var(--text-3); }
+    .f-group { margin-bottom:0; }
+    .f-hint { font-size:10px; color:var(--text-3); margin-top:4px; font-family:var(--font-mono); }
+    .f-hint.warn { color:#f59e0b; }
+
+    /* ── Upload zone ────────────────────────────────────────── */
+    .upload-zone {
+      border:2px dashed var(--border); border-radius:12px; padding:36px 24px;
+      text-align:center; cursor:pointer; transition:all .2s; position:relative;
+      background:var(--bg-3);
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color:var(--accent); background:var(--bg-2); }
+    .upload-zone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+    .uz-title { font-size:15px; font-weight:600; color:var(--text); margin-bottom:4px; }
+    .uz-sub   { font-size:13px; color:var(--text-2); }
+    .uz-hint  { font-size:11px; color:var(--text-3); margin-top:6px; font-family:var(--font-mono); }
+
+    .manual-divider { display:flex; align-items:center; gap:10px; margin:14px 0; color:var(--text-3); font-size:11px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.06em; }
+    .manual-divider::before, .manual-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+
+    /* ── File pills ─────────────────────────────────────────── */
+    .file-list { display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+    .file-pill {
+      background:var(--bg-3); border:1px solid var(--border); border-radius:9px;
+      padding:10px 14px; display:flex; align-items:center; gap:12px;
+    }
+    .file-thumb { width:38px; height:38px; border-radius:6px; object-fit:cover; border:1px solid var(--border); flex-shrink:0; }
+    .file-thumb-pdf {
+      width:38px; height:38px; border-radius:6px; background:var(--bg-2); border:1px solid var(--border);
+      flex-shrink:0; display:flex; align-items:center; justify-content:center; color:var(--accent-2);
+    }
+    .file-name  { flex:1; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .file-status { font-size:11px; font-family:var(--font-mono); white-space:nowrap; }
+    .st-pending  { color:var(--text-3); }
+    .st-scanning { color:var(--accent-2); display:flex; align-items:center; gap:5px; }
+    .st-done     { color:var(--green); }
+    .st-error    { color:var(--red); }
+    .file-remove { background:none; border:none; cursor:pointer; color:var(--text-3); padding:4px; border-radius:4px; display:flex; align-items:center; transition:color .15s; }
+    .file-remove:hover { color:var(--red); }
+
+    /* ── Source quotation preview (per supplier tab) ─────────── */
+    .sup-source { display:flex; align-items:center; gap:12px; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-2); }
+    .sup-source-thumb {
+      width:64px; height:64px; border-radius:8px; border:1px solid var(--border); overflow:hidden;
+      cursor:pointer; flex-shrink:0; background:var(--bg-3); display:flex; align-items:center;
+      justify-content:center; transition:border-color .15s;
+    }
+    .sup-source-thumb:hover { border-color:var(--accent); }
+    .sup-source-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .sup-source-thumb-pdf { color:var(--accent-2); }
+    .sup-source-info { flex:1; display:flex; flex-direction:column; gap:6px; min-width:0; }
+    .sup-source-name { font-size:12px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-mono); }
+    .sup-source-empty {
+      display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-3); font-style:italic;
+      margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-2);
+    }
+
+    /* ── Lightbox (full-size quotation preview) ──────────────── */
+    .lightbox-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.82); display:none; align-items:center; justify-content:center; z-index:1000; padding:30px; }
+    .lightbox-inner { position:relative; max-width:90vw; max-height:90vh; display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .lightbox-inner img { max-width:90vw; max-height:80vh; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,0.5); }
+    .lightbox-close {
+      position:absolute; top:-14px; right:-14px; background:var(--bg-2); border:1px solid var(--border);
+      color:var(--text); width:30px; height:30px; border-radius:50%; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .lightbox-close:hover { border-color:var(--accent); color:var(--accent); }
+    .lightbox-caption { font-size:12px; color:#ccc; font-family:var(--font-mono); }
+
+    /* ── Supplier tabs ──────────────────────────────────────── */
+    .sup-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:0; border-bottom:1px solid var(--border); }
+    .sup-tab {
+      display:flex; align-items:center; gap:7px; padding:9px 13px; border-radius:8px 8px 0 0;
+      background:var(--bg-3); border:1px solid var(--border); border-bottom:none; cursor:pointer;
+      font-size:13px; font-weight:500; color:var(--text-2); transition:all .15s; position:relative; top:1px;
+    }
+    .sup-tab:hover { color:var(--text); background:var(--bg-2); }
+    .sup-tab.active { background:var(--bg-2); color:var(--text); box-shadow:0 -2px 0 var(--accent) inset; }
+    .sup-tab-badge { width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-family:var(--font-mono); font-weight:700; flex-shrink:0; }
+    .sb-0 { background:#0a1f3a; color:var(--accent-2); }
+    .sb-1 { background:#0a2010; color:var(--green); }
+    .sb-2 { background:#2a1800; color:#f59e0b; }
+    .sb-3 { background:#1a0a2e; color:#a5a0f5; }
+    .sb-4 { background:#0a1a20; color:#67e8f9; }
+    .sup-tab-name { max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sup-tab-count { font-size:10px; font-family:var(--font-mono); color:var(--text-3); background:var(--bg); padding:1px 6px; border-radius:99px; }
+    .sup-tab-remove { background:none; border:none; cursor:pointer; color:var(--text-3); padding:2px; border-radius:4px; display:flex; align-items:center; }
+    .sup-tab-remove:hover { color:var(--red); }
+    .sup-tab-add { background:transparent; border:1px dashed var(--border); color:var(--text-3); }
+    .sup-tab-add:hover { border-color:var(--accent); color:var(--accent); }
+
+    .sup-panel { background:var(--bg-2); border:1px solid var(--border); border-top:none; border-radius:0 0 10px 10px; padding:18px; }
+    .sup-empty, .sup-empty-items { font-size:13px; color:var(--text-3); text-align:center; padding:20px; font-style:italic; }
+    .sup-fields-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:6px; }
+    .sup-fields-grid .full { grid-column:1 / -1; }
+
+    /* ── Extracted items (editable fields, not a checklist) ──── */
+    .items-block { margin-top:14px; padding-top:12px; border-top:1px solid var(--border-2); }
+    .items-header-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+    .items-header { font-size:11px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
+    .ext-item { background:var(--bg-3); border:1px solid var(--border); border-radius:6px; padding:6px 8px; display:flex; align-items:center; gap:6px; margin-bottom:5px; flex-wrap:wrap; transition:border-color .15s; }
+    .ext-item.selected { border-color:var(--accent); }
+    .ext-item input[type=checkbox] { width:14px; height:14px; accent-color:var(--accent); cursor:pointer; flex-shrink:0; }
+    .ext-item-input { background:var(--bg-2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; padding:5px 7px; outline:none; font-family:inherit; transition:border-color .15s; }
+    .ext-item-input:focus { border-color:var(--accent); }
+    .ext-no    { width:32px; text-align:center; font-family:var(--font-mono); flex-shrink:0; }
+    .ext-desc  { flex:1; min-width:120px; }
+    .ext-qty   { width:58px; font-family:var(--font-mono); flex-shrink:0; }
+    .ext-unit  { width:52px; font-family:var(--font-mono); flex-shrink:0; }
+    .ext-price { width:72px; font-family:var(--font-mono); flex-shrink:0; }
+    .ext-item-currency { font-family:var(--font-mono); font-size:12px; color:var(--text-3); flex-shrink:0; }
+    .ext-item-remove { background:none; border:none; cursor:pointer; color:var(--text-3); padding:3px; border-radius:4px; flex-shrink:0; }
+    .ext-item-remove:hover { color:var(--red); }
+
+    /* ── Terms section inside supplier ─────────────────────── */
+    .terms-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-2); }
+    .terms-grid .full { grid-column:1 / -1; }
+    .terms-title { font-size:11px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); margin-bottom:10px; grid-column:1 / -1; }
+
+    /* ── Review table ───────────────────────────────────────── */
+    .review-wrap { overflow-x:auto; border-radius:8px; border:1px solid var(--border); }
+    .review-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .review-table th { background:var(--bg-3); padding:9px 11px; text-align:left; font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-2); border-bottom:1px solid var(--border); white-space:nowrap; }
+    .review-table td { padding:7px 11px; border-bottom:1px solid var(--border-2); vertical-align:middle; }
+    .review-table tr:last-child td { border-bottom:none; }
+    .review-table tr:hover td { background:var(--bg-3); }
+    .review-table input { background:none; border:none; color:var(--text); font-family:var(--font-mono); font-size:12px; outline:none; width:100%; min-width:60px; }
+    .review-table input:focus { background:var(--bg-3); border-radius:3px; padding:1px 4px; }
+
+    /* Supplier column color coding */
+    .th-s0 { background:#0a1f3a !important; color:#7dd3fc !important; }
+    .th-s1 { background:#0a2010 !important; color:#86efac !important; }
+    .th-s2 { background:#2a1800 !important; color:#fcd34d !important; }
+    .th-s3 { background:#1a0a2e !important; color:#c4b5fd !important; }
+    .th-s4 { background:#0a1a20 !important; color:#67e8f9 !important; }
+
+    /* ── Buttons ────────────────────────────────────────────── */
+    .cbtn { padding:9px 20px; border-radius:8px; font-size:13px; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:7px; transition:all .2s; border:1px solid var(--border); }
+    .cbtn-ghost   { background:var(--bg-2); color:var(--text-2); }
+    .cbtn-ghost:hover { border-color:var(--accent); color:var(--text); }
+    .cbtn-primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+    .cbtn-primary:hover:not(:disabled) { background:var(--accent-2); }
+    .cbtn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .cbtn-amber   { background:#f59e0b; color:#000; border-color:#f59e0b; font-weight:600; }
+    .cbtn-amber:hover { opacity:.85; }
+    .cbtn-sm { padding:5px 11px; font-size:12px; }
+    .cbtn-red { background:#3a1a1a; color:var(--red); border-color:#5a2d2d; }
+    .cbtn-red:hover { background:#4a2020; }
+
+    .action-bar { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; flex-wrap:wrap; }
+
+    /* ── Spinner ────────────────────────────────────────────── */
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .spinner { width:13px; height:13px; border:2px solid var(--border); border-top-color:var(--accent-2); border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0; display:inline-block; }
+
+    /* ── Raw output ─────────────────────────────────────────── */
+    .raw-box {
+      background:var(--bg); border:1px solid var(--border); border-radius:8px;
+      padding:12px; font-family:var(--font-mono); font-size:11px; color:var(--text-2);
+      max-height:200px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;
+      margin-top:10px; display:none;
+    }
+    .raw-box.visible { display:block; }
+
+    /* ── Status badge ───────────────────────────────────────── */
+    .status-badge {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:4px 10px; border-radius:99px; font-size:11px; font-family:var(--font-mono);
+    }
+    .sb-idle    { background:var(--bg-3); color:var(--text-3); }
+    .sb-working { background:#0a1f3a; color:var(--accent-2); border:1px solid #1a3a5a; }
+    .sb-done    { background:#0a2010; color:var(--green); border:1px solid #1a3a1e; }
+    .sb-error   { background:#3a1a1a; color:var(--red); border:1px solid #5a2d2d; }
+
+    @media(max-width:768px) {
+      .header-grid { grid-template-columns:1fr 1fr; }
+      .sup-fields-grid { grid-template-columns:1fr; }
+      .terms-grid { grid-template-columns:1fr; }
+      .ext-desc { min-width:100%; order:-1; }
+    }
+    @media(max-width:480px) {
+      .header-grid { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="topnav">
+    <a href="index.html" class="brand">
+      <div class="brand-icon"><i data-lucide="clipboard-list" style="width:16px;height:16px;color:#fff;"></i></div>
+      <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+    </a>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <nav>
+        <a href="index.html"><i data-lucide="home" style="width:14px;height:14px;"></i> <span>Home</span></a>
+        <a href="scanner.html"><i data-lucide="scan" style="width:14px;height:14px;"></i> <span>Scanner</span></a>
+        <a href="canvass.html" class="active"><i data-lucide="table-2" style="width:14px;height:14px;"></i> <span>Canvass</span></a>
+        <a href="dashboard.html"><i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> <span>Dashboard</span></a>
+        <a href="calibrate.html"><i data-lucide="move" style="width:14px;height:14px;"></i> <span>Calibrate</span></a>
+        <a href="suppliers.html"><i data-lucide="building-2" style="width:14px;height:14px;"></i> <span>Suppliers</span></a>
+        <a href="accountability.html"><i data-lucide="shield-check" style="width:14px;height:14px;"></i> <span>Accountability</span></a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode">
+        <i data-lucide="moon" style="width:16px;height:16px;" id="theme-icon"></i>
+      </button>
+    </div>
+  </nav>
+  <script src="theme.js"></script>
+
+  <div class="toast-container" id="toasts"></div>
+
+  <!-- Full-size quotation preview -->
+  <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightbox()">
+    <div class="lightbox-inner" onclick="event.stopPropagation()">
+      <button class="lightbox-close" onclick="closeLightbox()" title="Close">
+        <i data-lucide="x" style="width:14px;height:14px;"></i>
+      </button>
+      <img id="lightbox-img" src="" alt="quotation full preview" />
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+  </div>
+
+  <div class="page-wrap">
+
+    <div class="page-header" style="padding-top:0;">
+      <div class="eyebrow">Feature 3</div>
+      <h1>Canvass Sheet</h1>
+      <p>Upload supplier quotations, auto-extract all details with AI, review, then export into your canvass template.</p>
+    </div>
+
+    <!-- Steps -->
+    <div class="steps">
+      <div class="step active" id="step-1"><div class="step-num">1</div><span>Upload &amp; Extract</span></div>
+      <div class="step" id="step-2"><div class="step-num">2</div><span>Review Items</span></div>
+      <div class="step" id="step-3"><div class="step-num">3</div><span>Export Excel</span></div>
+    </div>
+
+    <!-- Canvass details -->
+    <div class="c-card">
+      <div class="c-card-title">
+        <div class="c-card-title-left"><i data-lucide="file-text" style="width:14px;height:14px;"></i> Canvass Details</div>
+      </div>
+      <div class="header-grid">
+        <div class="f-group"><label class="f-label">Item / Project Title</label><input class="f-input" type="text" id="cs-title" placeholder="e.g. Office Supplies Q3" /></div>
+        <div class="f-group"><label class="f-label">RO Number (optional)</label><input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none" /></div>
+        <div class="f-group"><label class="f-label">Date</label><input class="f-input" type="date" id="cs-date" /></div>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="c-card">
+      <div class="c-card-title">
+        <div class="c-card-title-left"><i data-lucide="upload-cloud" style="width:14px;height:14px;"></i> Upload Quotations</div>
+        <span class="status-badge sb-idle" id="extract-status">Waiting for files</span>
+      </div>
+
+      <div class="upload-zone" id="drop-zone"
+        ondragover="onDragOver(event)" ondragleave="onDragLeave()" ondrop="onDrop(event)">
+        <input type="file" id="file-input" accept="image/*,application/pdf" multiple onchange="onFilesSelected(event)" />
+        <div style="display:flex;justify-content:center;margin-bottom:10px;opacity:0.35;">
+          <i data-lucide="images" style="width:44px;height:44px;"></i>
+        </div>
+        <div class="uz-title">Drop quotation images here</div>
+        <div class="uz-sub">or click to browse/Use Camera &mdash; you can select multiple files at once</div>
+        <div class="uz-hint">Each file = one supplier's quotation</div>
+      </div>
+
+      <div class="manual-divider"><span>or</span></div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+        <button class="cbtn cbtn-ghost cbtn-sm" onclick="addBlankSupplier()">
+          <i data-lucide="pencil-line" style="width:13px;height:13px;"></i> Enter Manually
+        </button>
+        <span style="color:var(--border);font-size:11px;">|</span>
+      </div>
+
+      <!-- File list -->
+      <div id="file-list" class="file-list"></div>
+
+      <!-- Extract button bar -->
+      <div id="extract-bar" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--text-2);" id="extract-hint">Ready to extract</span>
+        <button class="cbtn cbtn-amber" onclick="extractAll()" id="extract-btn">
+          <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Extract All with AI
+        </button>
+      </div>
+    </div>
+
+    <!-- Suppliers (built after extraction) -->
+    <div class="c-card" id="suppliers-card" style="display:none;">
+      <div class="c-card-title">
+        <div class="c-card-title-left"><i data-lucide="building-2" style="width:14px;height:14px;"></i> Suppliers &amp; Extracted Data</div>
+        <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-3);">Any number of suppliers &mdash; use the + tab to add more</span>
+      </div>
+
+      <div class="sup-tabs" id="sup-tabs"></div>
+      <div class="sup-panel" id="sup-panel"></div>
+
+      <div style="display:flex;justify-content:flex-end;margin-top:18px;">
+        <button class="cbtn cbtn-amber" onclick="buildReview()">
+          <i data-lucide="table-2" style="width:14px;height:14px;"></i> Build Review Table
+        </button>
+      </div>
+    </div>
+
+    <!-- Review table -->
+    <div id="review-section" style="display:none;">
+      <div class="c-card">
+        <div class="c-card-title">
+          <div class="c-card-title-left"><i data-lucide="table-2" style="width:14px;height:14px;"></i> Review &amp; Edit &mdash; changes here go into the Excel</div>
+        </div>
+
+        <div class="review-wrap">
+          <table class="review-table">
+            <thead id="review-thead"></thead>
+            <tbody id="review-tbody"></tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:10px;">
+          <button class="cbtn cbtn-ghost cbtn-sm" onclick="addReviewRow()">
+            <i data-lucide="plus" style="width:13px;height:13px;"></i> Add Row
+          </button>
+        </div>
+
+        <!-- Remarks -->
+        <div style="margin-top:16px;">
+          <label class="f-label">Remarks</label>
+          <input class="f-input" type="text" id="remarks" placeholder="Any remarks..." />
+        </div>
+
+        <div class="action-bar">
+          <button class="cbtn cbtn-ghost" onclick="if(confirm('Start over?')) location.reload()">
+            <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> Start Over
+          </button>
+          <button class="cbtn cbtn-primary" id="export-btn" onclick="exportToTemplate()">
+            <i data-lucide="download" style="width:14px;height:14px;"></i> Export to Excel Template
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Debug: raw AI response -->
+    <div id="debug-wrap" style="display:none;" class="c-card">
+      <div class="c-card-title">
+        <div class="c-card-title-left"><i data-lucide="terminal" style="width:14px;height:14px;"></i> Raw AI Response</div>
+        <button class="cbtn cbtn-ghost cbtn-sm" onclick="document.getElementById('debug-wrap').style.display='none'">Hide</button>
+      </div>
+      <pre id="raw-output" class="raw-box visible" style="max-height:300px;"></pre>
+    </div>
+
+  </div><!-- /page-wrap -->
+
+  <script>
+    // ── Config ───────────────────────────────────────────────────────────────
+    let GEMINI_API_KEY = "";
+    const GEMINI_MODEL = "gemini-2.5-flash-lite";
+    const GEMINI_URL   = () =>
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+    // Load key from server on page load
+    fetch("/api/config").then(r => r.json()).then(cfg => { GEMINI_API_KEY = cfg.GEMINI_API_KEY; });
+    // ── Config ───────────────────────────────────────────────────────────────
+
+    const GEMINI_PROMPT = `
+You are extracting information from a supplier quotation document.
+Return ONLY valid JSON with EXACTLY this structure — no markdown, no backticks, no explanations:
+
+{
+  "supplierName": "",
+  "location": "",
+  "contactPerson": "",
+  "contactNumber": "",
+  "items": [
+    {
+      "itemNo": "",
+      "description": "",
+      "qty": "",
+      "unit": "",
+      "unitPrice": "",
+      "total": ""
+    }
+  ],
+  "deliveryCharge": "",
+  "discount": "",
+  "grandTotal": "",
+  "creditTerms": "",
+  "vat": "",
+  "availability": "",
+  "deliveryAddress": ""
+}
+
+Rules:
+- Extract every line item. Preserve text exactly as written.
+- supplierName: the company/business name issuing the quotation.
+- location: the SUPPLIER's own business address/city, usually printed in the letterhead near the supplier name or logo. This is different from deliveryAddress (the customer's delivery address, usually printed lower in the document).
+- contactPerson: the name of the person to contact (signatory, sales rep, prepared-by, etc.), if printed on the document.
+- contactNumber: a phone/mobile number associated with the supplier or contact person, if printed on the document.
+- Do not invent values. If a value cannot be found, use an empty string "" — never guess or fabricate a name, address, or number.
+- Output plain human-readable text only. Never include special/control tokens such as <bos>, <eos>, <pad>, <unk>, <start_of_turn>, <end_of_turn> or any other bracketed tokens anywhere in a value.
+- Return ONLY JSON. No markdown. No explanations. No code blocks.
+`;
+
+    // ── State ────────────────────────────────────────────────────────────────
+    let uploadedFiles    = [];   // [{ id, file, name, type, b64, dataUrl, status, supplierId }]
+    let suppliers        = [];   // [{ id, name, loc, contact, num, items[], terms{} }]
+    let activeSupplierId = null; // which supplier tab is currently shown
+    let reviewRows       = [];
+    let fileIdCounter    = 0;
+    let supIdCounter     = 0;
+    let itemIdCounter    = 0;
+    const SUP_COLORS   = ['#0a1f3a','#0a2010','#2a1800','#1a0a2e','#0a1a20'];
+    const SUP_TEXT     = ['#7dd3fc','#86efac','#fcd34d','#c4b5fd','#67e8f9'];
+
+    lucide.createIcons();
+    document.getElementById('cs-date').valueAsDate = new Date();
+
+    // ── Drag / Drop ──────────────────────────────────────────────────────────
+    function onDragOver(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); }
+    function onDragLeave() { document.getElementById('drop-zone').classList.remove('dragover'); }
+    function onDrop(e) {
+      e.preventDefault(); onDragLeave();
+      const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
+      if (files.length) addFiles(files);
+    }
+    function onFilesSelected(e) { addFiles([...e.target.files]); e.target.value = ''; }
+
+    function addFiles(files) {
+      files.forEach(file => {
+        const id = ++fileIdCounter;
+        const entry = { id, file, name: file.name, type: file.type, b64: null, dataUrl: null, status: 'pending', supplierId: null };
+        uploadedFiles.push(entry);
+        const reader = new FileReader();
+        reader.onload = ev => {
+          entry.dataUrl = ev.target.result;
+          entry.b64     = ev.target.result.split(',')[1];
+          renderFileList();
+        };
+        reader.readAsDataURL(file);
+      });
+      renderFileList();
+      showExtractBar();
+    }
+
+    function removeFile(id) {
+      uploadedFiles = uploadedFiles.filter(f => f.id !== id);
+      renderFileList();
+      if (!uploadedFiles.length) document.getElementById('extract-bar').style.display = 'none';
+    }
+
+    function renderFileList() {
+      const list = document.getElementById('file-list');
+      list.innerHTML = uploadedFiles.map(f => {
+        const thumb = (f.dataUrl && f.type.startsWith('image/'))
+          ? `<img src="${f.dataUrl}" class="file-thumb" />`
+          : `<div class="file-thumb-pdf"><i data-lucide="file-text" style="width:16px;height:16px;"></i></div>`;
+
+        let statusHtml;
+        if      (f.status === 'pending')  statusHtml = `<span class="file-status st-pending">Ready</span>`;
+        else if (f.status === 'scanning') statusHtml = `<span class="file-status st-scanning"><div class="spinner"></div> Scanning…</span>`;
+        else if (f.status === 'done')     statusHtml = `<span class="file-status st-done"><i data-lucide="check-circle" style="width:12px;height:12px;display:inline;"></i> Done</span>`;
+        else                              statusHtml = `<span class="file-status st-error"><i data-lucide="alert-circle" style="width:12px;height:12px;display:inline;"></i> Failed</span>`;
+
+        return `<div class="file-pill" id="fp-${f.id}">
+          ${thumb}
+          <span class="file-name">${escHtml(f.name)}</span>
+          ${statusHtml}
+          <button class="file-remove" onclick="removeFile(${f.id})" title="Remove">
+            <i data-lucide="x" style="width:12px;height:12px;"></i>
+          </button>
+        </div>`;
+      }).join('');
+      lucide.createIcons();
+
+      // update extract hint
+      const pending = uploadedFiles.filter(f => f.status === 'pending').length;
+      const done    = uploadedFiles.filter(f => f.status === 'done').length;
+      const hint    = document.getElementById('extract-hint');
+      if (hint) hint.textContent = done > 0
+        ? `${done} extracted · ${pending} pending`
+        : `${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} ready`;
+    }
+
+    function showExtractBar() {
+      const bar = document.getElementById('extract-bar');
+      bar.style.display = 'flex';
+    }
+
+    function appendRawOutput(label, obj) {
+      const el = document.getElementById('raw-output');
+      el.textContent += `── ${label} ──\n${JSON.stringify(obj, null, 2)}\n\n`;
+    }
+
+    // ── Extract all ──────────────────────────────────────────────────────────
+    async function extractAll() {
+      if (!GEMINI_API_KEY) {
+        toast('Add your Gemini API key in canvass.html first.', 'error', 6000);
+        return;
+      }
+
+      const btn = document.getElementById('extract-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner"></div> Extracting…';
+      setStatus('working', 'Extracting with AI…');
+
+      const pending = uploadedFiles.filter(f => f.status === 'pending' && f.b64);
+      let doneCount = 0;
+      document.getElementById('raw-output').textContent = ''; // reset accumulator for this batch
+
+      for (const file of pending) {
+        file.status = 'scanning';
+        renderFileList();
+        try {
+          const result = await callGemini(file);
+          file.status = 'done';
+          doneCount++;
+
+          // Append (don't overwrite) so every supplier's raw response stays visible
+          appendRawOutput(file.name, result);
+
+          // Each file = one supplier's quotation -> becomes its own tab
+          createSupplierFromResult(file, result);
+        } catch(e) {
+          file.status = 'error';
+          console.error(file.name, e);
+          appendRawOutput(file.name, { error: e.message });
+          toast(`Failed: ${file.name} — ${e.message}`, 'error', 5000);
+        }
+        renderFileList();
+      }
+
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="sparkles" style="width:14px;height:14px;"></i> Extract All with AI';
+      lucide.createIcons();
+
+      if (doneCount > 0) {
+        setStatus('done', `${doneCount} quotation${doneCount > 1 ? 's' : ''} extracted`);
+        toast(`Extracted ${doneCount} quotation${doneCount > 1 ? 's' : ''}. Review each supplier tab below.`, 'success');
+        document.getElementById('suppliers-card').style.display = 'block';
+        document.getElementById('debug-wrap').style.display = 'block';
+        document.getElementById('suppliers-card').scrollIntoView({ behavior:'smooth', block:'start' });
+      } else {
+        setStatus('error', 'Extraction failed');
+      }
+    }
+
+    async function callGemini(file) {
+      const payload = {
+        contents: [{
+          parts: [
+            { text: GEMINI_PROMPT },
+            { inline_data: { mime_type: file.type, data: file.b64 } }
+          ]
+        }]
+      };
+
+      const resp = await fetch(GEMINI_URL(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error.message);
+
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cleaned = stripModelTokens(rawText.replace(/```json/gi,'').replace(/```/g,'').trim());
+      const parsed  = JSON.parse(cleaned);
+      return deepCleanStrings(parsed);
+    }
+
+    // Some models (esp. Gemma-based ones like gemini-flash-lite) occasionally leak
+    // internal special tokens such as <bos>/<eos>/<pad> into output text, sometimes
+    // mid-word inside a name (e.g. "Mj<bos>Gacuta"). Strip these out everywhere.
+    function stripModelTokens(str) {
+      return String(str || '')
+        .replace(/<\/?(bos|eos|pad|unk|start_of_turn|end_of_turn)>/gi, '')
+        .trim();
+    }
+
+    function cleanValue(v) {
+      if (typeof v !== 'string') return v;
+      return stripModelTokens(v).replace(/\s{2,}/g, ' ').trim();
+    }
+
+    function deepCleanStrings(obj) {
+      if (typeof obj === 'string') return cleanValue(obj);
+      if (Array.isArray(obj)) return obj.map(deepCleanStrings);
+      if (obj && typeof obj === 'object') {
+        const out = {};
+        for (const k in obj) out[k] = deepCleanStrings(obj[k]);
+        return out;
+      }
+      return obj;
+    }
+
+    // ── Create supplier from Gemini result ───────────────────────────────────
+    // Builds one new supplier (= one new tab) per quotation file. Supplier name,
+    // contact person and contact number are auto-filled when the AI finds them;
+    // any field it can't find is left blank (null) for manual entry — never guessed.
+    function createSupplierFromResult(file, result) {
+      const id = ++supIdCounter;
+      const guessedName = result.supplierName
+        || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+
+      const items = (result.items || []).map((it, i) => ({
+        id:          `s${id}i${++itemIdCounter}`,
+        itemNo:      it.itemNo      || String(i + 1),
+        description: it.description || '',
+        qty:         it.qty         || '1',
+        unit:        it.unit        || 'pce',
+        unitPrice:   it.unitPrice   || '',
+        total:       it.total       || '',
+        checked:     true,
+      }));
+
+      const supplier = {
+        id,
+        name:    guessedName,
+        loc:     result.location       || '',  // blank if AI couldn't find it — fill in manually
+        contact: result.contactPerson  || '',  // blank if AI couldn't find it — fill in manually
+        num:     result.contactNumber  || '',  // blank if AI couldn't find it — fill in manually
+        sourceFile: { name: file.name, dataUrl: file.dataUrl, type: file.type }, // for the preview thumbnail
+        items,
+        terms: {
+          deliveryCharge: result.deliveryCharge || '',
+          discount:       result.discount       || '',
+          grandTotal:     result.grandTotal     || '',
+          creditTerms:    result.creditTerms    || '',
+          vat:            result.vat            || '',
+          availability:   result.availability   || '',
+          deliveryAddress:result.deliveryAddress|| '',
+        },
+      };
+
+      suppliers.push(supplier);
+      activeSupplierId = id; // jump to the newly extracted supplier's tab
+      renderSuppliers();
+    }
+
+    function addBlankSupplier() {
+      const id = ++supIdCounter;
+      suppliers.push({ id, name:'', loc:'', contact:'', num:'', sourceFile:null, items:[], terms:{
+        deliveryCharge:'', discount:'', grandTotal:'', creditTerms:'', vat:'', availability:'', deliveryAddress:'',
+      }});
+      activeSupplierId = id;
+      renderSuppliers();
+      document.getElementById('suppliers-card').style.display = 'block';
+      document.getElementById('suppliers-card').scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+
+    // ── Render suppliers as tabs (dynamic — works for 1, 2, 3, 4+ suppliers) ──
+    function renderSuppliers() {
+      const tabsEl  = document.getElementById('sup-tabs');
+      const panelEl = document.getElementById('sup-panel');
+
+      if (!suppliers.length) {
+        tabsEl.innerHTML  = `<button class="sup-tab sup-tab-add" onclick="addBlankSupplier()"><i data-lucide="plus" style="width:13px;height:13px;"></i> Add Supplier</button>`;
+        panelEl.innerHTML = `<div class="sup-empty">No suppliers yet. Extract a quotation above or click "Add Supplier".</div>`;
+        lucide.createIcons();
+        return;
+      }
+
+      if (!suppliers.find(s => s.id === activeSupplierId)) {
+        activeSupplierId = suppliers[0].id;
+      }
+
+      tabsEl.innerHTML = suppliers.map((s, si) => {
+        const colorIdx     = si % 5;
+        const checkedCount = s.items.filter(it => it.checked).length;
+        const active       = s.id === activeSupplierId;
+        return `<div class="sup-tab ${active ? 'active' : ''}" data-tab-id="${s.id}" onclick="setActiveSupplier(${s.id})">
+          <span class="sup-tab-badge sb-${colorIdx}">${si + 1}</span>
+          <span class="sup-tab-name">${escHtml(s.name) || `Supplier ${si + 1}`}</span>
+          <span class="sup-tab-count">${checkedCount}</span>
+          ${suppliers.length > 1 ? `
+            <button class="sup-tab-remove" onclick="event.stopPropagation();removeSupplier(${s.id})" title="Remove supplier">
+              <i data-lucide="x" style="width:11px;height:11px;"></i>
+            </button>` : ''}
+        </div>`;
+      }).join('') + `<button class="sup-tab sup-tab-add" onclick="addBlankSupplier()" title="Add another supplier">
+          <i data-lucide="plus" style="width:13px;height:13px;"></i> Add Supplier
+        </button>`;
+
+      const active = suppliers.find(s => s.id === activeSupplierId);
+      panelEl.innerHTML = renderSupplierPanel(active, suppliers.indexOf(active));
+      lucide.createIcons();
+    }
+
+    function renderSupplierPanel(s, si) {
+      const itemsHtml = s.items.length ? s.items.map(it => `
+        <div class="ext-item ${it.checked ? 'selected' : ''}" id="ei-${it.id}">
+          <input type="checkbox" ${it.checked ? 'checked' : ''}
+            onchange="toggleItem('${it.id}', ${s.id}, this.checked)" title="Include in canvass" />
+          <input class="ext-item-input ext-no" type="text" value="${escHtml(it.itemNo)}" placeholder="#"
+            oninput="updItem('${it.id}',${s.id},'itemNo',this.value)" />
+          <input class="ext-item-input ext-desc" type="text" value="${escHtml(it.description)}" placeholder="Description"
+            oninput="updItem('${it.id}',${s.id},'description',this.value)" />
+          <input class="ext-item-input ext-qty" type="text" value="${escHtml(it.qty)}" placeholder="Qty"
+            oninput="updItem('${it.id}',${s.id},'qty',this.value)" />
+          <input class="ext-item-input ext-unit" type="text" value="${escHtml(it.unit)}" placeholder="Unit"
+            oninput="updItem('${it.id}',${s.id},'unit',this.value)" />
+          <span class="ext-item-currency">₱</span>
+          <input class="ext-item-input ext-price" type="text" value="${escHtml(it.unitPrice)}" placeholder="0.00"
+            oninput="updItem('${it.id}',${s.id},'unitPrice',this.value)" />
+          <button class="ext-item-remove" onclick="removeItem('${it.id}',${s.id})" title="Remove item">
+            <i data-lucide="x" style="width:12px;height:12px;"></i>
+          </button>
+        </div>`).join('') : `<div class="sup-empty-items">No items yet — extract a quotation or add one manually.</div>`;
+
+      const sourceHtml = s.sourceFile
+        ? (s.sourceFile.type.startsWith('image/')
+            ? `<div class="sup-source">
+                 <div class="sup-source-thumb" onclick="showSupplierLightbox(${s.id})" title="View full size">
+                   <img src="${s.sourceFile.dataUrl}" alt="quotation preview" />
+                 </div>
+                 <div class="sup-source-info">
+                   <span class="sup-source-name">${escHtml(s.sourceFile.name)}</span>
+                   <button class="cbtn cbtn-ghost cbtn-sm" onclick="showSupplierLightbox(${s.id})" style="align-self:flex-start;">
+                     <i data-lucide="zoom-in" style="width:12px;height:12px;"></i> View Full Size
+                   </button>
+                 </div>
+               </div>`
+            : `<div class="sup-source">
+                 <div class="sup-source-thumb sup-source-thumb-pdf" onclick="openSupplierPdf(${s.id})" title="Open PDF">
+                   <i data-lucide="file-text" style="width:24px;height:24px;"></i>
+                 </div>
+                 <div class="sup-source-info">
+                   <span class="sup-source-name">${escHtml(s.sourceFile.name)}</span>
+                   <button class="cbtn cbtn-ghost cbtn-sm" onclick="openSupplierPdf(${s.id})" style="align-self:flex-start;">
+                     <i data-lucide="external-link" style="width:12px;height:12px;"></i> Open PDF
+                   </button>
+                 </div>
+               </div>`)
+        : `<div class="sup-source-empty">
+     <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin:0;" title="Attach a quotation image or PDF to this supplier">
+       <i data-lucide="image-plus" style="width:13px;height:13px;"></i> + Add Image
+       <input type="file" accept="image/*,application/pdf" style="display:none;"
+         onchange="attachImageToSupplier(${s.id}, event)" />
+     </label>
+     <span style="color:var(--border);font-size:11px;">|</span>
+     <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin:0;" title="Use camera">
+       <i data-lucide="camera" style="width:13px;height:13px;"></i> Camera
+       <input type="file" accept="image/*" capture="environment" style="display:none;"
+         onchange="attachImageToSupplier(${s.id}, event)" />
+     </label>
+   </div>`;
+      return `
+        ${sourceHtml}
+        <div class="sup-fields-grid">
+          <input class="f-input full" type="text" placeholder="Company name" value="${escHtml(s.name)}"
+            oninput="updSup(${s.id},'name',this.value)" />
+          <div class="f-group">
+            <input class="f-input" type="text" placeholder="Location" value="${escHtml(s.loc)}"
+              oninput="updSup(${s.id},'loc',this.value)" />
+            ${s.loc ? '' : '<div class="f-hint warn">Not found on quotation — enter manually</div>'}
+          </div>
+          <div class="f-group">
+            <input class="f-input" type="text" placeholder="Contact person" value="${escHtml(s.contact)}"
+              oninput="updSup(${s.id},'contact',this.value)" />
+            ${s.contact ? '' : '<div class="f-hint warn">Not found on quotation — enter manually</div>'}
+          </div>
+          <div class="f-group full">
+            <input class="f-input" type="text" placeholder="Contact number" value="${escHtml(s.num)}"
+              oninput="updSup(${s.id},'num',this.value)" />
+            ${s.num ? '' : '<div class="f-hint warn">Not found on quotation — enter manually</div>'}
+          </div>
+        </div>
+
+        <div class="items-block">
+          <div class="items-header-row">
+            <span class="items-header">${s.items.length} item${s.items.length !== 1 ? 's' : ''} &mdash; edit any field directly, uncheck to exclude from canvass</span>
+            <button class="cbtn cbtn-ghost cbtn-sm" onclick="addBlankItem(${s.id})">
+              <i data-lucide="plus" style="width:12px;height:12px;"></i> Add Item
+            </button>
+          </div>
+          ${itemsHtml}
+        </div>
+
+        <div class="terms-grid">
+          <div class="terms-title">Quotation Terms (auto-filled — edit if needed)</div>
+          ${[
+            ['deliveryCharge','Delivery Charge','FREE if none'],
+            ['discount',      'Discount',       'Blank if none'],
+            ['grandTotal',    'Grand Total',    ''],
+            ['creditTerms',   'Credit Terms',   'e.g. 50% DP 50% FP'],
+            ['vat',           'VAT',            'VAT Inclusive'],
+            ['availability',  'Availability',   'Days before delivery'],
+          ].map(([k, lbl, ph]) => `
+            <div class="f-group">
+              <label class="f-label">${lbl}</label>
+              <input class="f-input" type="text" placeholder="${ph}"
+                value="${escHtml(s.terms[k] || '')}"
+                oninput="updSupTerm(${s.id},'${k}',this.value)" />
+            </div>`).join('')}
+          <div class="f-group full">
+            <label class="f-label">Delivery Address</label>
+            <input class="f-input" type="text" placeholder="Address"
+              value="${escHtml(s.terms.deliveryAddress || '')}"
+              oninput="updSupTerm(${s.id},'deliveryAddress',this.value)" />
+          </div>
+        </div>`;
+    }
+
+    // ── Source quotation preview (lightbox + PDF open) ───────────────────────
+    function showSupplierLightbox(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s || !s.sourceFile) return;
+      document.getElementById('lightbox-img').src = s.sourceFile.dataUrl;
+      document.getElementById('lightbox-caption').textContent = s.sourceFile.name || '';
+      document.getElementById('lightbox-overlay').style.display = 'flex';
+    }
+
+    function closeLightbox() {
+      const overlay = document.getElementById('lightbox-overlay');
+      if (overlay.style.display === 'none') return;
+      overlay.style.display = 'none';
+      document.getElementById('lightbox-img').src = '';
+    }
+
+    function openSupplierPdf(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s || !s.sourceFile) return;
+      const a = document.createElement('a');
+      a.href = s.sourceFile.dataUrl;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.click();
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+    function setActiveSupplier(id) {
+      activeSupplierId = id;
+      renderSuppliers();
+    }
+
+    function updSup(id, key, val) {
+      const s = suppliers.find(x => x.id === id);
+      if (!s) return;
+      s[key] = val;
+      // Update the tab label live without re-rendering the whole panel (keeps input focus)
+      if (key === 'name') {
+        const tabNameEl = document.querySelector(`.sup-tab[data-tab-id="${id}"] .sup-tab-name`);
+        if (tabNameEl) tabNameEl.textContent = val || `Supplier ${suppliers.indexOf(s) + 1}`;
+      }
+    }
+
+    function updSupTerm(id, key, val) {
+      const s = suppliers.find(x => x.id === id);
+      if (s) s.terms[key] = val;
+    }
+
+    function removeSupplier(id) {
+      suppliers = suppliers.filter(s => s.id !== id);
+      if (activeSupplierId === id) {
+        activeSupplierId = suppliers.length ? suppliers[0].id : null;
+      }
+      renderSuppliers();
+    }
+
+    // ── Item-level editing (plain editable fields, not a read-only checklist) ─
+    function updItem(itemId, supplierId, key, val) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const it = s.items.find(x => x.id === itemId);
+      if (it) it[key] = val;
+    }
+
+    function toggleItem(itemId, supplierId, checked) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const it = s.items.find(x => x.id === itemId);
+      if (it) it.checked = checked;
+      renderSuppliers(); // refresh tab item count + row highlight
+    }
+
+    function addBlankItem(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      s.items.push({
+        id: `s${supplierId}i${++itemIdCounter}`,
+        itemNo: String(s.items.length + 1),
+        description: '', qty: '1', unit: 'pce', unitPrice: '', total: '', checked: true,
+      });
+      renderSuppliers();
+    }
+
+    function removeItem(itemId, supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      s.items = s.items.filter(it => it.id !== itemId);
+      renderSuppliers();
+    }
+
+    // ── Build review table ───────────────────────────────────────────────────
+    function buildReview() {
+      const descMap = new Map();
+
+      suppliers.forEach((s, si) => {
+        s.items.filter(it => it.checked).forEach(it => {
+          const key = it.description.trim();
+          if (!descMap.has(key)) {
+            const row = { desc:key, qty:it.qty||'1', unit:it.unit||'pce' };
+            suppliers.forEach((_,i) => row[`p${i}`] = '');
+            descMap.set(key, row);
+          }
+          descMap.get(key)[`p${si}`] = it.unitPrice;
+        });
+      });
+
+      reviewRows = descMap.size > 0
+        ? [...descMap.values()]
+        : [{ desc:'', qty:'1', unit:'pce', ...Object.fromEntries(suppliers.map((_,i) => [`p${i}`,''])) }];
+
+      renderReviewTable();
+
+      document.getElementById('review-section').style.display = 'block';
+      document.getElementById('review-section').scrollIntoView({ behavior:'smooth', block:'start' });
+      setStep(2);
+    }
+
+    function renderReviewTable() {
+      // Header
+      document.getElementById('review-thead').innerHTML = `<tr>
+        <th>#</th>
+        <th>Description</th>
+        <th>Qty</th>
+        <th>Unit</th>
+        ${suppliers.map((s, i) => `
+          <th class="th-s${i % 5}">${escHtml(s.name || `Supplier ${i+1}`)} — Unit Price</th>
+          <th class="th-s${i % 5}">Total</th>`).join('')}
+        <th></th>
+      </tr>`;
+
+      // Body
+      document.getElementById('review-tbody').innerHTML = reviewRows.map((r, ri) => `
+        <tr data-idx="${ri}">
+          <td style="color:var(--text-3);font-family:var(--font-mono);font-size:11px;">${ri+1}</td>
+          <td><input value="${escHtml(r.desc)}" oninput="reviewRows[${ri}].desc=this.value" style="min-width:180px;" /></td>
+          <td><input value="${escHtml(r.qty)}"  oninput="reviewRows[${ri}].qty=this.value"  style="width:50px;text-align:center;" /></td>
+          <td><input value="${escHtml(r.unit)}" oninput="reviewRows[${ri}].unit=this.value" style="width:50px;text-align:center;" /></td>
+          ${suppliers.map((_,si) => `
+            <td><input type="number" value="${r[`p${si}`]||''}" placeholder="—"
+              oninput="reviewRows[${ri}]['p${si}']=this.value" style="width:90px;" /></td>
+            <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);" id="tot-${ri}-${si}">
+              ${calcTotal(r[`p${si}`], r.qty)}
+            </td>`).join('')}
+          <td>
+            <button onclick="removeReviewRow(${ri})"
+              style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px 5px;">
+              <i data-lucide="x" style="width:12px;height:12px;"></i>
+            </button>
+          </td>
+        </tr>`).join('');
+      lucide.createIcons();
+    }
+
+    function calcTotal(price, qty) {
+      const p = parseFloat(String(price).replace(/[^0-9.]/g,''));
+      const q = parseFloat(String(qty).replace(/[^0-9.]/g,''));
+      if (isNaN(p) || isNaN(q)) return '—';
+      return '₱' + (p * q).toLocaleString('en-PH', { minimumFractionDigits:2 });
+    }
+
+    function addReviewRow() {
+      const row = { desc:'', qty:'1', unit:'pce' };
+      suppliers.forEach((_,i) => row[`p${i}`] = '');
+      reviewRows.push(row);
+      renderReviewTable();
+    }
+
+    function removeReviewRow(i) {
+      reviewRows.splice(i, 1);
+      renderReviewTable();
+    }
+
+    // ── Export ───────────────────────────────────────────────────────────────
+    async function exportToTemplate() {
+      const btn = document.getElementById('export-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner"></div> Generating Excel…';
+
+      const payload = {
+        title:   document.getElementById('cs-title').value,
+        ro:      document.getElementById('cs-ro').value,
+        date:    document.getElementById('cs-date').value,
+        remarks: document.getElementById('remarks').value,
+        items: reviewRows.map(r => ({
+          desc: r.desc, qty: r.qty, unit: r.unit,
+          ...Object.fromEntries(suppliers.map((_,i) => [`p${i+1}`, r[`p${i}`] || ''])),
+        })),
+        suppliers: suppliers.map(s => ({
+          name: s.name, loc: s.loc, contact: s.contact, num: s.num,
+        })),
+        delivery: suppliers.map(s => s.terms.deliveryCharge || ''),
+        discount: suppliers.map(s => s.terms.discount       || ''),
+        credit:   suppliers.map(s => s.terms.creditTerms    || ''),
+        vat:      suppliers.map(s => s.terms.vat            || ''),
+        avail:    suppliers.map(s => s.terms.availability   || ''),
+        da:       suppliers.map(s => s.terms.deliveryAddress|| ''),
+      };
+
+      try {
+        const resp = await fetch('/api/canvass/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Server error'); }
+
+        const blob  = await resp.blob();
+        const url   = URL.createObjectURL(blob);
+        const a     = document.createElement('a');
+        a.href      = url;
+        a.download  = `Canvass_${(document.getElementById('cs-title').value||'Sheet').replace(/\s+/g,'_')}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('Excel downloaded — template preserved!', 'success');
+        setStep(3);
+      } catch(e) {
+        toast('Export failed: ' + e.message, 'error');
+        console.error(e);
+      }
+
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="download" style="width:14px;height:14px;"></i> Export to Excel Template';
+      lucide.createIcons();
+    }
+
+    // ── Status badge ─────────────────────────────────────────────────────────
+    function setStatus(state, msg) {
+      const el = document.getElementById('extract-status');
+      el.className = `status-badge sb-${state}`;
+      el.textContent = msg;
+    }
+
+    // ── Step indicator ───────────────────────────────────────────────────────
+    function setStep(n) {
+      [1,2,3].forEach(i => {
+        const el = document.getElementById('step-'+i);
+        el.classList.remove('active','done');
+        if (i < n) { el.classList.add('done'); el.querySelector('.step-num').innerHTML = '<i data-lucide="check" style="width:11px;height:11px;"></i>'; }
+        if (i === n) el.classList.add('active');
+      });
+      lucide.createIcons();
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────────────────
+    function toast(msg, type='info', duration=3500) {
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      el.textContent = msg;
+      document.getElementById('toasts').appendChild(el);
+      setTimeout(() => el.remove(), duration);
+    }
+
+    // ── Utils ─────────────────────────────────────────────────────────────────
+    function escHtml(v) {
+      return String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── Attach image/photo to an existing manually-added supplier tab ─────────
+    function attachImageToSupplier(supplierId, e) {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const s = suppliers.find(x => x.id === supplierId);
+        if (!s) return;
+        s.sourceFile = { name: file.name, dataUrl: ev.target.result, type: file.type };
+        // also update the supplier name if it's still blank
+        if (!s.name) s.name = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+        renderSuppliers();
+        toast(`"${file.name}" attached to ${s.name || 'supplier'}.`, 'info');
+      };
+      reader.readAsDataURL(file);
+    }
+    // Initial render so the "Add Supplier" tab and empty state are ready
+    renderSuppliers();
+    // ── Manual file attach (image/PDF without AI, or camera capture) ──────────
+    function addManualFiles(e) {
+      const files = [...e.target.files];
+      e.target.value = '';
+      if (!files.length) return;
+
+      files.forEach(file => {
+        const id = ++fileIdCounter;
+        const entry = {
+          id, file, name: file.name, type: file.type,
+          b64: null, dataUrl: null, status: 'done', supplierId: null,
+        };
+        uploadedFiles.push(entry);
+
+        const reader = new FileReader();
+        reader.onload = ev => {
+          entry.dataUrl = ev.target.result;
+          entry.b64     = ev.target.result.split(',')[1];
+          renderFileList();
+
+          const supId = ++supIdCounter;
+          const sup = {
+            id: supId,
+            name: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+            loc: '', contact: '', num: '',
+            sourceFile: { name: file.name, dataUrl: entry.dataUrl, type: file.type },
+            items: [],
+            terms: {
+              deliveryCharge: '', discount: '', grandTotal: '',
+              creditTerms: '', vat: '', availability: '', deliveryAddress: '',
+            },
+          };
+          entry.supplierId = supId;
+          suppliers.push(sup);
+          activeSupplierId = supId;
+
+          document.getElementById('suppliers-card').style.display = 'block';
+          renderSuppliers();
+          document.getElementById('suppliers-card')
+            .scrollIntoView({ behavior: 'smooth', block: 'start' });
+          toast(`"${file.name}" attached — fill in supplier details below.`, 'info');
+        };
+        reader.readAsDataURL(file);
+      });
+      renderFileList();
+      showExtractBar();
+    }
+
+
+</script>
+</body>
+</html>
