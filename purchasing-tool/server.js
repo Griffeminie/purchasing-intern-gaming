@@ -248,6 +248,18 @@ app.get("/api/dashboard", (req, res) => {
   }
 });
 
+// ── API: Serve config (API keys) to frontend ──────────────────────────────
+app.get("/api/config", (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "config.json"), "utf8"));
+    console.log("[config] /api/config requested");
+    console.log("[config] GEMINI_API_KEY present:", !!cfg.GEMINI_API_KEY);
+    res.json({ GEMINI_API_KEY: cfg.GEMINI_API_KEY || "" });
+  } catch(e) {
+    console.error("[config] Failed to read config.json:", e.message);
+    res.status(500).json({ GEMINI_API_KEY: "" });
+  }
+});
 // ── Start ──────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
   const interfaces = os.networkInterfaces();

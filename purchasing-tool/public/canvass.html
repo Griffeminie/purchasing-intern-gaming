@@ -277,7 +277,8 @@
       </div>
       <div class="header-grid">
         <div class="f-group"><label class="f-label">Item / Project Title</label><input class="f-input" type="text" id="cs-title" placeholder="e.g. Office Supplies Q3" /></div>
-        <div class="f-group"><label class="f-label">RO Number (optional)</label><input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none" /></div>
+        <input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none"
+          oninput="checkDevTrigger(this.value)" />
         <div class="f-group"><label class="f-label">Date</label><input class="f-input" type="date" id="cs-date" /></div>
       </div>
     </div>
@@ -318,6 +319,20 @@
           <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Extract All with AI
         </button>
       </div>
+      <div id="dev-key-panel" style="display:none;margin-top:10px;padding:10px 14px;background:var(--bg-3);border:1px solid var(--border);border-radius:8px;align-items:center;gap:8px;">
+        <i data-lucide="key" style="width:13px;height:13px;color:var(--text-3);flex-shrink:0;"></i>
+        <input type="password" id="dev-key-input" class="f-input" placeholder="Paste Gemini API key…"
+          style="margin:0;font-family:var(--font-mono);font-size:12px;"
+          oninput="applyDevKey(this.value)" />
+        <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);white-space:nowrap;">dev override</span>
+      </div>
+      <span id="ai-status" style="font-size:11px;font-family:var(--font-mono);display:flex;align-items:center;gap:6px;">
+      <span id="ai-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-3);display:inline-block;"></span>
+      <span id="ai-label">AI checking…</span>
+      </span>
+      <button class="cbtn cbtn-amber" onclick="extractAll()" id="extract-btn">
+      <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Extract All with AI
+      </button>
     </div>
 
     <!-- Suppliers (built after extraction) -->
@@ -393,7 +408,13 @@
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
     // Load key from server on page load
-    fetch("/api/config").then(r => r.json()).then(cfg => { GEMINI_API_KEY = cfg.GEMINI_API_KEY; });
+    let configReady = fetch("/api/config")
+      .then(r => r.json())
+      .then(cfg => {
+        GEMINI_API_KEY = cfg.GEMINI_API_KEY;
+        setAIStatus(GEMINI_API_KEY ? 'ready' : 'error');
+      })
+      .catch(() => setAIStatus('error'));
     // ── Config ───────────────────────────────────────────────────────────────
 
     const GEMINI_PROMPT = `
@@ -527,6 +548,7 @@ Rules:
 
     // ── Extract all ──────────────────────────────────────────────────────────
     async function extractAll() {
+      await configReady;
       if (!GEMINI_API_KEY) {
         toast('Add your Gemini API key in canvass.html first.', 'error', 6000);
         return;
@@ -990,11 +1012,39 @@ Rules:
       lucide.createIcons();
     }
 
+    // ── Dev key override (type *mynamejeff* in the RO field) ──────────────────
+    function checkDevTrigger(val) {
+      if (val === '*mynamejeff*') {
+        const panel = document.getElementById('dev-key-panel');
+        const isVisible = panel.style.display === 'flex';
+        panel.style.display = isVisible ? 'none' : 'flex';
+        lucide.createIcons();
+        document.getElementById('cs-ro').value = ''; // clear the field
+      }
+    }
+
+    function applyDevKey(val) {
+      GEMINI_API_KEY = val.trim();
+      setAIStatus(GEMINI_API_KEY ? 'ready' : 'error');
+    }
     function calcTotal(price, qty) {
       const p = parseFloat(String(price).replace(/[^0-9.]/g,''));
       const q = parseFloat(String(qty).replace(/[^0-9.]/g,''));
       if (isNaN(p) || isNaN(q)) return '—';
       return '₱' + (p * q).toLocaleString('en-PH', { minimumFractionDigits:2 });
+    }
+    function setAIStatus(state) {
+      const dot   = document.getElementById('ai-dot');
+      const label = document.getElementById('ai-label');
+      if (!dot || !label) return;
+      const states = {
+        checking: { color: '#d29922', text: 'AI checking…'   },
+        ready:    { color: '#3fb950', text: 'AI ready'        },
+        error:    { color: '#f85149', text: 'AI key missing'  },
+      };
+      const s = states[state] || states.checking;
+      dot.style.background = s.color;
+      label.textContent    = s.text;
     }
 
     function addReviewRow() {
@@ -1094,6 +1144,24 @@ Rules:
       return String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    // ── Dev key override (type *mynamejeff* anywhere on page to unlock) ────────
+    (function() {
+      let buf = '';
+      document.addEventListener('keydown', e => {
+        buf += e.key;
+        if (buf.length > 13) buf = buf.slice(-13);
+        if (buf === '*mynamejeff*') {
+          const panel = document.getElementById('dev-key-panel');
+          panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+          buf = '';
+        }
+      });
+    })();
+
+    function applyDevKey(val) {
+      GEMINI_API_KEY = val.trim();
+      setAIStatus(GEMINI_API_KEY ? 'ready' : 'error');
+    }
     // ── Attach image/photo to an existing manually-added supplier tab ─────────
     function attachImageToSupplier(supplierId, e) {
       const file = e.target.files[0];
