@@ -179,8 +179,8 @@
     .cbtn-amber   { background:#f59e0b; color:#000; border-color:#f59e0b; font-weight:600; }
     .cbtn-amber:hover { opacity:.85; }
     .cbtn-sm { padding:5px 11px; font-size:12px; }
-    .cbtn-red { background:#3a1a1a; color:var(--red); border-color:#5a2d2d; }
-    .cbtn-red:hover { background:#4a2020; }
+    body.light .cbtn-red { background:#fee2e2; color:#b91c1c; border-color:#fca5a5; }
+    body.light .cbtn-red:hover { background:#fecaca; }
 
     .action-bar { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; flex-wrap:wrap; }
 
@@ -237,6 +237,7 @@
       width: 44px; height: 44px; border-radius: 50%; background: #2a1800; color: #f59e0b;
       display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
     }
+    body.light .unsaved-icon { background: #fef3d0; color: #b45309; }
     .unsaved-modal h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
     .unsaved-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
     .unsaved-actions  { display: flex; gap: 10px; justify-content: center; }
