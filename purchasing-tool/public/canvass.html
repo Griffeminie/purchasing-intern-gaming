@@ -216,6 +216,31 @@
     @media(max-width:480px) {
       .header-grid { grid-template-columns:1fr; }
     }
+    .unsaved-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000; opacity: 0; pointer-events: none;
+  transition: opacity 0.25s ease;
+    }
+    .unsaved-overlay.visible { opacity: 1; pointer-events: auto; }
+
+    .unsaved-modal {
+      background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px; max-width: 360px; width: 90%; text-align: center;
+      transform: scale(0.9) translateY(10px); opacity: 0;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .unsaved-overlay.visible .unsaved-modal { transform: scale(1) translateY(0); opacity: 1; }
+
+    .unsaved-icon {
+      width: 44px; height: 44px; border-radius: 50%; background: #2a1800; color: #f59e0b;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+    }
+    .unsaved-modal h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .unsaved-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
+    .unsaved-actions  { display: flex; gap: 10px; justify-content: center; }
+    .unsaved-actions .cbtn { flex: 1; justify-content: center; }
   </style>
 </head>
 <body>
@@ -241,6 +266,19 @@
     </div>
   </nav>
   <script src="theme.js"></script>
+  <div class="unsaved-overlay" id="unsaved-overlay">
+    <div class="unsaved-modal">
+      <div class="unsaved-icon">
+        <i data-lucide="alert-triangle" style="width:20px;height:20px;"></i>
+      </div>
+      <h3>Unsaved changes</h3>
+      <p>You have unsaved canvass data. If you leave now, your suppliers, items, and uploaded files will be lost.</p>
+      <div class="unsaved-actions">
+        <button class="cbtn cbtn-ghost" onclick="cancelLeave()">Stay on Page</button>
+        <button class="cbtn cbtn-red" onclick="confirmLeave()">Leave Anyway</button>
+      </div>
+    </div>
+  </div>
 
   <div class="toast-container" id="toasts"></div>
 
@@ -992,6 +1030,39 @@ Rules:
       document.getElementById('review-section').scrollIntoView({ behavior:'smooth', block:'start' });
       setStep(2);
     }
+
+    // ── Custom unsaved-changes modal for in-app navigation ─────────────────────
+    let pendingNavUrl = null;
+
+    function interceptNavLinks() {
+      document.querySelectorAll('.topnav nav a').forEach(link => {
+        link.addEventListener('click', (e) => {
+          if (!hasUnsavedChanges) return; // let it navigate normally
+          e.preventDefault();
+          pendingNavUrl = link.getAttribute('href');
+          showUnsavedModal();
+        });
+      });
+    }
+
+    function showUnsavedModal() {
+      const overlay = document.getElementById('unsaved-overlay');
+      overlay.classList.add('visible');
+      lucide.createIcons();
+    }
+
+    function cancelLeave() {
+      document.getElementById('unsaved-overlay').classList.remove('visible');
+      pendingNavUrl = null;
+    }
+
+    function confirmLeave() {
+      hasUnsavedChanges = false; // prevent beforeunload from also firing
+      if (pendingNavUrl) window.location.href = pendingNavUrl;
+    }
+
+    document.addEventListener('DOMContentLoaded', interceptNavLinks);
+    interceptNavLinks(); // also run immediately in case DOMContentLoaded already fired
 
     function renderReviewTable() {
       // Header
