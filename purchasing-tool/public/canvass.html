@@ -277,8 +277,11 @@
       </div>
       <div class="header-grid">
         <div class="f-group"><label class="f-label">Item / Project Title</label><input class="f-input" type="text" id="cs-title" placeholder="e.g. Office Supplies Q3" /></div>
-        <input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none"
-          oninput="checkDevTrigger(this.value)" />
+        <div class="f-group">
+          <label class="f-label">RO Number (optional)</label>
+          <input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none"
+            oninput="checkDevTrigger(this.value)" />
+        </div>
         <div class="f-group"><label class="f-label">Date</label><input class="f-input" type="date" id="cs-date" /></div>
       </div>
     </div>
