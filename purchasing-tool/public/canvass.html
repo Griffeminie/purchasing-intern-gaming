@@ -404,6 +404,15 @@
   </div><!-- /page-wrap -->
 
   <script>
+    // ── Unsaved changes warning ─────────────────────────────────────────────
+    let hasUnsavedChanges = false;
+    function markDirty() { hasUnsavedChanges = true; }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (!hasUnsavedChanges) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
     // ── Config ───────────────────────────────────────────────────────────────
     let GEMINI_API_KEY = "";
     const GEMINI_MODEL = "gemini-2.5-flash-lite";
@@ -484,6 +493,7 @@ Rules:
     function onFilesSelected(e) { addFiles([...e.target.files]); e.target.value = ''; }
 
     function addFiles(files) {
+      markDirty();
       files.forEach(file => {
         const id = ++fileIdCounter;
         const entry = { id, file, name: file.name, type: file.type, b64: null, dataUrl: null, status: 'pending', supplierId: null };
@@ -658,6 +668,7 @@ Rules:
     // contact person and contact number are auto-filled when the AI finds them;
     // any field it can't find is left blank (null) for manual entry — never guessed.
     function createSupplierFromResult(file, result) {
+      markDirty();
       const id = ++supIdCounter;
       const guessedName = result.supplierName
         || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
@@ -698,6 +709,7 @@ Rules:
     }
 
     function addBlankSupplier() {
+      markDirty();
       const id = ++supIdCounter;
       suppliers.push({ id, name:'', loc:'', contact:'', num:'', sourceFile:null, items:[], terms:{
         deliveryCharge:'', discount:'', grandTotal:'', creditTerms:'', vat:'', availability:'', deliveryAddress:'',
@@ -898,6 +910,7 @@ Rules:
       const s = suppliers.find(x => x.id === id);
       if (!s) return;
       s[key] = val;
+      markDirty();
       // Update the tab label live without re-rendering the whole panel (keeps input focus)
       if (key === 'name') {
         const tabNameEl = document.querySelector(`.sup-tab[data-tab-id="${id}"] .sup-tab-name`);
@@ -907,7 +920,7 @@ Rules:
 
     function updSupTerm(id, key, val) {
       const s = suppliers.find(x => x.id === id);
-      if (s) s.terms[key] = val;
+      if (s) { s.terms[key] = val; markDirty(); }
     }
 
     function removeSupplier(id) {
@@ -923,7 +936,7 @@ Rules:
       const s = suppliers.find(x => x.id === supplierId);
       if (!s) return;
       const it = s.items.find(x => x.id === itemId);
-      if (it) it[key] = val;
+      if (it) { it[key] = val; markDirty(); }
     }
 
     function toggleItem(itemId, supplierId, checked) {
@@ -954,6 +967,7 @@ Rules:
 
     // ── Build review table ───────────────────────────────────────────────────
     function buildReview() {
+      markDirty();
       const descMap = new Map();
 
       suppliers.forEach((s, si) => {
