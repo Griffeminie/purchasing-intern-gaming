@@ -4,6 +4,7 @@ const xlsx    = require("xlsx");
 const path    = require("path");
 const fs      = require("fs");
 const os      = require("os");
+const { execFile } = require("child_process");
 
 const app  = express();
 const PORT = 3000;
@@ -242,6 +243,118 @@ function writeCache(data) {
     fs.writeFileSync(CACHE_PATH, JSON.stringify(data), "utf8");
   } catch(e) { console.warn("Could not write dashboard cache:", e.message); }
 }
+
+
+// ── Monitoring cleanup (v2 - real upload flow) ─────────────────────────────────
+const UPLOAD_DIR = path.join(__dirname, "data", "uploads");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const excelUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => cb(null, `pending_${Date.now()}.xlsx`),
+  }),
+  fileFilter: (req, file, cb) => {
+    const ok = file.originalname.toLowerCase().endsWith(".xlsx");
+    cb(ok ? null : new Error("Only .xlsx files are supported"), ok);
+  },
+});
+
+const CLEAN_EXCEL_SCRIPT = path.join(__dirname, "clean_monitoring_excel.py");
+const MAX_SAVINGS_ROWS = 200;
+
+app.post("/api/monitoring/upload", excelUpload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const uploadedPath = req.file.path;
+  const fileId = req.file.filename;
+  const startedAt = Date.now();
+  console.log(`[Monitoring Upload] Received: ${req.file.originalname} (${(req.file.size / 1024).toFixed(0)}KB)`);
+  console.log(`[Monitoring Upload] Spawning python inspect...`);
+
+  execFile(
+    "python",
+    [CLEAN_EXCEL_SCRIPT, "inspect", uploadedPath],
+    { maxBuffer: 20 * 1024 * 1024 },
+    (err, stdout, stderr) => {
+      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+      if (err) {
+        console.error(`[Monitoring Upload] Inspection failed after ${elapsed}s:`);
+        console.error("  err:", err.message);
+        console.error("  stderr:", stderr);
+        fs.unlink(uploadedPath, () => {});
+        return res.status(500).json({ error: "Inspection failed", detail: stderr || err.message });
+      }
+      try {
+        const stats = JSON.parse(stdout.trim());
+        console.log(`[Monitoring Upload] Inspection ok in ${elapsed}s:`, stats.dirty ? "DIRTY" : "clean", stats.totalMergedCells, "merged cells");
+        res.json({ fileId, ...stats });
+      } catch (parseErr) {
+        console.error("[Monitoring Upload] Could not parse python output. Raw stdout:", stdout);
+        fs.unlink(uploadedPath, () => {});
+        res.status(500).json({ error: "Could not parse inspection output", raw: stdout });
+      }
+    }
+  );
+});
+
+app.post("/api/monitoring/clean", (req, res) => {
+  const { fileId } = req.body;
+  if (!fileId) return res.status(400).json({ error: "Missing fileId" });
+
+  const pendingPath = path.join(UPLOAD_DIR, fileId);
+  if (!fs.existsSync(pendingPath)) {
+    return res.status(404).json({ error: "Uploaded file not found — please re-upload" });
+  }
+
+  const startedAt = Date.now();
+  console.log(`[Monitoring Clean] Cleaning: ${pendingPath} -> ${EXCEL_PATH}`);
+
+  execFile(
+    "python",
+    [CLEAN_EXCEL_SCRIPT, "clean", pendingPath, EXCEL_PATH],
+    { maxBuffer: 20 * 1024 * 1024 },
+    (err, stdout, stderr) => {
+      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+      fs.unlink(pendingPath, () => {});
+
+      if (err) {
+        console.error(`[Monitoring Clean] Cleanup script failed after ${elapsed}s:`);
+        console.error("  err:", err.message);
+        console.error("  stderr:", stderr);
+        return res.status(500).json({ error: "Cleanup script failed", detail: stderr || err.message });
+      }
+
+      let cleanSummary;
+      try {
+        cleanSummary = JSON.parse(stdout.trim());
+        console.log(`[Monitoring Clean] Excel cleaned in ${elapsed}s:`, cleanSummary.sheets.map(s => `${s.name}(${s.finalRowCount})`).join(", "));
+      } catch (parseErr) {
+        console.error("[Monitoring Clean] Could not parse python output. Raw stdout:", stdout);
+        return res.status(500).json({ error: "Could not parse cleanup output", raw: stdout });
+      }
+
+      try {
+        const data = buildDashboardData();
+        if (data.savingsData.length > MAX_SAVINGS_ROWS) {
+          data.savingsData = data.savingsData.slice(0, MAX_SAVINGS_ROWS);
+        }
+        writeCache(data);
+        console.log(`[Monitoring Clean] Dashboard rebuilt: ${data.rawRows} rows, ${data.savingsData.length} savings rows`);
+
+        res.json({
+          ok: true,
+          excelCleanSummary: cleanSummary,
+          rawRows: data.rawRows,
+          savingsRowCount: data.savingsData.length,
+        });
+      } catch (rebuildErr) {
+        console.error("[Monitoring Clean] Dashboard rebuild failed:", rebuildErr);
+        res.status(500).json({ error: "Excel cleaned but dashboard rebuild failed", detail: rebuildErr.message });
+      }
+    }
+  );
+});
 
 function buildDashboardData() {
   const allData = getAllMonthData();
