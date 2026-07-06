@@ -4,6 +4,7 @@ const xlsx    = require("xlsx");
 const path    = require("path");
 const fs      = require("fs");
 const os      = require("os");
+const { spawn } = require("child_process"); 
 const { execFile } = require("child_process");
 
 const app  = express();
@@ -270,32 +271,38 @@ app.post("/api/monitoring/upload", excelUpload.single("file"), (req, res) => {
   const fileId = req.file.filename;
   const startedAt = Date.now();
   console.log(`[Monitoring Upload] Received: ${req.file.originalname} (${(req.file.size / 1024).toFixed(0)}KB)`);
-  console.log(`[Monitoring Upload] Spawning python inspect...`);
 
-  execFile(
-    "python",
-    [CLEAN_EXCEL_SCRIPT, "inspect", uploadedPath],
-    { maxBuffer: 20 * 1024 * 1024 },
-    (err, stdout, stderr) => {
-      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
-      if (err) {
-        console.error(`[Monitoring Upload] Inspection failed after ${elapsed}s:`);
-        console.error("  err:", err.message);
-        console.error("  stderr:", stderr);
-        fs.unlink(uploadedPath, () => {});
-        return res.status(500).json({ error: "Inspection failed", detail: stderr || err.message });
-      }
-      try {
-        const stats = JSON.parse(stdout.trim());
-        console.log(`[Monitoring Upload] Inspection ok in ${elapsed}s:`, stats.dirty ? "DIRTY" : "clean", stats.totalMergedCells, "merged cells");
-        res.json({ fileId, ...stats });
-      } catch (parseErr) {
-        console.error("[Monitoring Upload] Could not parse python output. Raw stdout:", stdout);
-        fs.unlink(uploadedPath, () => {});
-        res.status(500).json({ error: "Could not parse inspection output", raw: stdout });
-      }
+  const proc = spawn("python", [CLEAN_EXCEL_SCRIPT, "inspect", uploadedPath]);
+  let stdout = "";
+
+  proc.stdout.on("data", (chunk) => { stdout += chunk; });
+  proc.stderr.on("data", (chunk) => {
+    chunk.toString().split("\n").filter(Boolean).forEach(line => console.log(`[python] ${line}`));
+  });
+
+  proc.on("close", (code) => {
+    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+    if (code !== 0) {
+      console.error(`[Monitoring Upload] Inspection failed after ${elapsed}s (exit code ${code})`);
+      fs.unlink(uploadedPath, () => {});
+      return res.status(500).json({ error: "Inspection failed", detail: `python exited with code ${code}` });
     }
-  );
+    try {
+      const stats = JSON.parse(stdout.trim());
+      console.log(`[Monitoring Upload] Inspection ok in ${elapsed}s:`, stats.dirty ? "DIRTY" : "clean", stats.totalMergedCells, "merged cells");
+      res.json({ fileId, ...stats });
+    } catch (parseErr) {
+      console.error("[Monitoring Upload] Could not parse python output. Raw stdout:", stdout);
+      fs.unlink(uploadedPath, () => {});
+      res.status(500).json({ error: "Could not parse inspection output", raw: stdout });
+    }
+  });
+
+  proc.on("error", (err) => {
+    console.error("[Monitoring Upload] Failed to spawn python:", err.message);
+    fs.unlink(uploadedPath, () => {});
+    res.status(500).json({ error: "Failed to start python", detail: err.message });
+  });
 });
 
 app.post("/api/monitoring/clean", (req, res) => {
@@ -310,50 +317,57 @@ app.post("/api/monitoring/clean", (req, res) => {
   const startedAt = Date.now();
   console.log(`[Monitoring Clean] Cleaning: ${pendingPath} -> ${EXCEL_PATH}`);
 
-  execFile(
-    "python",
-    [CLEAN_EXCEL_SCRIPT, "clean", pendingPath, EXCEL_PATH],
-    { maxBuffer: 20 * 1024 * 1024 },
-    (err, stdout, stderr) => {
-      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
-      fs.unlink(pendingPath, () => {});
+  const proc = spawn("python", [CLEAN_EXCEL_SCRIPT, "clean", pendingPath, EXCEL_PATH]);
+  let stdout = "";
 
-      if (err) {
-        console.error(`[Monitoring Clean] Cleanup script failed after ${elapsed}s:`);
-        console.error("  err:", err.message);
-        console.error("  stderr:", stderr);
-        return res.status(500).json({ error: "Cleanup script failed", detail: stderr || err.message });
-      }
+  proc.stdout.on("data", (chunk) => { stdout += chunk; });
+  proc.stderr.on("data", (chunk) => {
+    chunk.toString().split("\n").filter(Boolean).forEach(line => console.log(`[python] ${line}`));
+  });
 
-      let cleanSummary;
-      try {
-        cleanSummary = JSON.parse(stdout.trim());
-        console.log(`[Monitoring Clean] Excel cleaned in ${elapsed}s:`, cleanSummary.sheets.map(s => `${s.name}(${s.finalRowCount})`).join(", "));
-      } catch (parseErr) {
-        console.error("[Monitoring Clean] Could not parse python output. Raw stdout:", stdout);
-        return res.status(500).json({ error: "Could not parse cleanup output", raw: stdout });
-      }
+  proc.on("close", (code) => {
+    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+    fs.unlink(pendingPath, () => {});
 
-      try {
-        const data = buildDashboardData();
-        if (data.savingsData.length > MAX_SAVINGS_ROWS) {
-          data.savingsData = data.savingsData.slice(0, MAX_SAVINGS_ROWS);
-        }
-        writeCache(data);
-        console.log(`[Monitoring Clean] Dashboard rebuilt: ${data.rawRows} rows, ${data.savingsData.length} savings rows`);
-
-        res.json({
-          ok: true,
-          excelCleanSummary: cleanSummary,
-          rawRows: data.rawRows,
-          savingsRowCount: data.savingsData.length,
-        });
-      } catch (rebuildErr) {
-        console.error("[Monitoring Clean] Dashboard rebuild failed:", rebuildErr);
-        res.status(500).json({ error: "Excel cleaned but dashboard rebuild failed", detail: rebuildErr.message });
-      }
+    if (code !== 0) {
+      console.error(`[Monitoring Clean] Cleanup script failed after ${elapsed}s (exit code ${code})`);
+      return res.status(500).json({ error: "Cleanup script failed", detail: `python exited with code ${code}` });
     }
-  );
+
+    let cleanSummary;
+    try {
+      cleanSummary = JSON.parse(stdout.trim());
+      console.log(`[Monitoring Clean] Excel cleaned in ${elapsed}s:`, cleanSummary.sheets.map(s => `${s.name}(${s.finalRowCount})`).join(", "));
+    } catch (parseErr) {
+      console.error("[Monitoring Clean] Could not parse python output. Raw stdout:", stdout);
+      return res.status(500).json({ error: "Could not parse cleanup output", raw: stdout });
+    }
+
+    try {
+      const data = buildDashboardData();
+      if (data.savingsData.length > MAX_SAVINGS_ROWS) {
+        data.savingsData = data.savingsData.slice(0, MAX_SAVINGS_ROWS);
+      }
+      writeCache(data);
+      console.log(`[Monitoring Clean] Dashboard rebuilt: ${data.rawRows} rows, ${data.savingsData.length} savings rows`);
+
+      res.json({
+        ok: true,
+        excelCleanSummary: cleanSummary,
+        rawRows: data.rawRows,
+        savingsRowCount: data.savingsData.length,
+      });
+    } catch (rebuildErr) {
+      console.error("[Monitoring Clean] Dashboard rebuild failed:", rebuildErr);
+      res.status(500).json({ error: "Excel cleaned but dashboard rebuild failed", detail: rebuildErr.message });
+    }
+  });
+
+  proc.on("error", (err) => {
+    console.error("[Monitoring Clean] Failed to spawn python:", err.message);
+    fs.unlink(pendingPath, () => {});
+    res.status(500).json({ error: "Failed to start python", detail: err.message });
+  });
 });
 
 function buildDashboardData() {
