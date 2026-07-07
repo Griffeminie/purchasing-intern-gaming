@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoring · Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    .toolbar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 12px 20px; background: var(--bg-2);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 52px; z-index: 90;
+    }
+    .page-title { font-size: 15px; font-weight: 700; color: var(--text); }
+    .page-title span { font-size: 12px; color: var(--text-2); font-weight: 400; font-family: var(--font-mono); margin-left: 6px; }
+    .toolbar-sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+
+    /* Month tabs */
+    .month-tabs {
+      display: flex; gap: 2px; padding: 10px 20px 0;
+      background: var(--bg-2); border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .month-tab {
+      padding: 7px 14px; font-size: 12px; font-family: var(--font-mono);
+      font-weight: 600; color: var(--text-2);
+      border: 1px solid transparent; border-bottom: none;
+      border-radius: 6px 6px 0 0; cursor: pointer; background: none;
+      transition: all 0.15s; white-space: nowrap;
+      position: relative; bottom: -1px;
+    }
+    .month-tab:hover { color: var(--text); background: var(--bg-3); }
+    .month-tab.active { color: var(--text); background: var(--bg); border-color: var(--border); border-bottom-color: var(--bg); }
+    .tab-count { display: inline-block; background: var(--bg-3); color: var(--text-3); font-size: 10px; padding: 1px 5px; border-radius: 99px; margin-left: 4px; }
+    .month-tab.active .tab-count { background: var(--accent); color: #fff; }
+
+    /* Stats strip */
+    .stats-strip {
+      display: flex; gap: 12px; padding: 10px 20px;
+      background: var(--bg); border-bottom: 1px solid var(--border-2); overflow-x: auto;
+    }
+    .stat-pill {
+      display: flex; flex-direction: column; min-width: 110px;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px 12px;
+    }
+    .stat-pill-label { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat-pill-value { font-size: 18px; font-weight: 700; color: var(--text); margin-top: 2px; }
+
+    /* Table */
+    .table-container {
+      overflow-x: auto; overflow-y: auto;
+      max-height: calc(100vh - 230px);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      margin: 12px 20px; background: var(--bg-2);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th {
+      background: var(--bg-3); padding: 9px 12px; text-align: left;
+      font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-2); border-bottom: 1px solid var(--border);
+      white-space: nowrap; position: sticky; top: 0; z-index: 10;
+    }
+    tbody tr { border-bottom: 1px solid var(--border-2); transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--bg-3); }
+    tbody td { padding: 8px 12px; color: var(--text); vertical-align: middle; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+
+    /* PO File cell */
+    .po-file-cell { text-align: center; white-space: nowrap; }
+    .btn-file-upload {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: var(--radius);
+      font-size: 11px; font-family: var(--font-mono); font-weight: 600;
+      border: 1px dashed var(--border); background: none; cursor: pointer;
+      color: var(--text-3); transition: all 0.15s;
+    }
+    .btn-file-upload:hover { border-color: var(--accent); color: var(--accent-2); background: rgba(31,111,235,0.06); }
+    .btn-file-view {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: var(--radius);
+      font-size: 11px; font-family: var(--font-mono); font-weight: 600;
+      border: 1px solid #2d5a32; background: #1a3a1e; cursor: pointer;
+      color: var(--green); transition: all 0.15s;
+    }
+    .btn-file-view:hover { background: #215226; }
+    .btn-file-remove {
+      display: inline-flex; align-items: center;
+      padding: 3px 5px; border-radius: var(--radius);
+      border: 1px solid transparent; background: none; cursor: pointer;
+      color: var(--text-3); transition: all 0.15s; margin-left: 2px;
+    }
+    .btn-file-remove:hover { color: var(--red); background: rgba(248,81,73,0.1); border-color: #5a2d2d; }
+
+    /* Action buttons */
+    .td-actions { text-align: center; white-space: nowrap; }
+    .btn-icon {
+      background: none; border: none; cursor: pointer; color: var(--text-3);
+      padding: 4px 6px; border-radius: 4px; transition: all 0.15s;
+      display: inline-flex; align-items: center;
+    }
+    .btn-icon:hover { background: var(--bg-3); color: var(--text); }
+    .btn-icon.danger:hover { color: var(--red); background: rgba(248,81,73,0.1); }
+
+    /* Status badges */
+    .badge {
+      display: inline-flex; align-items: center; padding: 2px 8px;
+      border-radius: 99px; font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      font-family: var(--font-mono); white-space: nowrap;
+    }
+    .badge-green  { background:#1a3a1e; color:var(--green);    border:1px solid #2d5a32; }
+    .badge-blue   { background:#0a1f3a; color:var(--accent-2); border:1px solid #1a3a5a; }
+    .badge-yellow { background:#3a2e0a; color:var(--yellow);   border:1px solid #5a480f; }
+    .badge-red    { background:#3a1a1a; color:var(--red);      border:1px solid #5a2d2d; }
+    .badge-grey   { background:var(--bg-3); color:var(--text-2); border:1px solid var(--border); }
+
+    /* Column panel */
+    .col-panel {
+      position: fixed; top: 0; right: -320px; width: 300px; height: 100vh;
+      background: var(--bg-2); border-left: 1px solid var(--border);
+      z-index: 300; transition: right 0.25s ease;
+      display: flex; flex-direction: column; box-shadow: var(--shadow-lg);
+    }
+    .col-panel.open { right: 0; }
+    .col-panel-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .col-panel-header h3 { font-size: 14px; font-weight: 600; }
+    .col-panel-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+    .col-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--radius); cursor: pointer; transition: background 0.1s; user-select: none; }
+    .col-item:hover { background: var(--bg-3); }
+    .col-item input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+    .col-item label { font-size: 12px; color: var(--text); cursor: pointer; font-family: var(--font-mono); }
+    .col-panel-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+    .panel-overlay { position: fixed; inset: 0; z-index: 299; display: none; }
+    .panel-overlay.open { display: block; }
+
+    /* PDF Viewer panel */
+    .pdf-panel {
+      position: fixed; top: 0; right: -55%; width: 52%;
+      height: 100vh; background: var(--bg-2);
+      border-left: 1px solid var(--border);
+      z-index: 400; transition: right 0.3s ease;
+      display: flex; flex-direction: column; box-shadow: var(--shadow-lg);
+    }
+    .pdf-panel.open { right: 0; }
+    .pdf-panel-header {
+      padding: 12px 18px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg-3); flex-shrink: 0;
+    }
+    .pdf-panel-title { font-size: 13px; font-weight: 600; font-family: var(--font-mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+    .pdf-panel-actions { display: flex; gap: 6px; align-items: center; }
+    .pdf-frame { flex: 1; border: none; background: #fff; }
+    .pdf-overlay { position: fixed; inset: 0; z-index: 399; display: none; background: rgba(0,0,0,0.3); }
+    .pdf-overlay.open { display: block; }
+
+    /* Search */
+    .search-wrap { position: relative; }
+    .search-wrap i { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+    .search-wrap input {
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+      color: var(--text); font-family: var(--font-sans); font-size: 13px;
+      padding: 6px 10px 6px 30px; width: 220px; outline: none; transition: border-color 0.15s;
+    }
+    .search-wrap input:focus { border-color: var(--accent); }
+    .search-wrap input::placeholder { color: var(--text-3); }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px); z-index: 500;
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); width: 100%; max-width: 740px;
+      max-height: 92vh; overflow-y: auto; box-shadow: var(--shadow-lg);
+      transform: translateY(10px); transition: transform 0.2s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal-header {
+      padding: 18px 24px 14px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; background: var(--bg-2); z-index: 5;
+    }
+    .modal-header h2 { font-size: 15px; font-weight: 700; }
+    .modal-close { background: none; border: none; cursor: pointer; color: var(--text-2); font-size: 20px; padding: 2px 7px; border-radius: 4px; transition: background 0.15s; }
+    .modal-close:hover { background: var(--bg-3); color: var(--text); }
+    .modal-body { padding: 20px 24px; }
+    .modal-footer { padding: 14px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; position: sticky; bottom: 0; background: var(--bg-2); }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
+    .form-grid .span-2 { grid-column: span 2; }
+    .form-section-label {
+      font-size: 10px; font-family: var(--font-mono); text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--accent-2); margin: 18px 0 10px;
+      padding-bottom: 6px; border-bottom: 1px solid var(--border-2); grid-column: span 2;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); font-family: var(--font-mono); }
+    .form-input, .form-select {
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 7px 10px; font-family: var(--font-sans); font-size: 13px; color: var(--text);
+      outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .form-input::placeholder { color: var(--text-3); }
+    .form-select option { background: var(--bg-2); }
+
+    /* Toast */
+    .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+    .toast { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 11px 16px; font-size: 13px; box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 10px; min-width: 240px; animation: slideUp 0.2s ease; }
+    @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .toast.success { border-color: #2d5a32; }
+    .toast.error   { border-color: #5a2d2d; }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-2); }
+    .empty-state h3 { font-size: 15px; font-weight: 600; color: var(--text); margin: 10px 0 6px; }
+    .empty-state p { font-size: 13px; }
+
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-family: var(--font-sans); font-size: 13px; font-weight: 500; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; text-decoration: none; white-space: nowrap; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary   { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-2); }
+    .btn-secondary { background: var(--bg-3); color: var(--text); border-color: var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--border); }
+    .btn-danger    { background: #4d1515; color: var(--red); border-color: #6a2020; }
+    .btn-danger:hover:not(:disabled) { background: #5a1a1a; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Grouped table rows */
+    .po-group-row { cursor:pointer; background:var(--bg-2); border-bottom:1px solid var(--border); transition:background 0.1s; }
+    .po-group-row:hover { background:var(--bg-3); }
+    .po-group-row.expanded { background:rgba(31,111,235,0.05); border-bottom:none; }
+    .toggle-cell { text-align:center; width:28px; padding:8px 4px !important; }
+    .toggle-icon { font-size:10px; color:var(--text-3); }
+    .item-subheader td { background:var(--bg-3) !important; border-bottom:1px solid var(--border-2); }
+    .item-row { background:var(--bg); border-bottom:1px solid var(--border-2); }
+    .item-row:hover { background:var(--bg-3); }
+    .item-row td { padding:6px 12px !important; }
+    .item-row td:nth-child(3) { padding-left:24px !important; }
+    .group-spacer td { padding:0 !important; }
+    .item-total-row td { 
+      background: var(--bg-3) !important; 
+      border-top: 1px solid var(--border);
+      border-bottom: 2px solid var(--border);
+      padding: 8px 12px !important;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Top Nav -->
+<nav class="topnav">
+  <a href="index.html" class="brand">
+    <div class="brand-icon"><i data-lucide="clipboard-list" style="width:16px;height:16px;color:#fff;"></i></div>
+    <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+  </a>
+  <div style="display:flex;align-items:center;gap:4px;">
+    <nav>
+      <a href="index.html"><i data-lucide="home" style="width:14px;height:14px;"></i> <span>Home</span></a>
+      <a href="scanner.html"><i data-lucide="scan" style="width:14px;height:14px;"></i> <span>Scanner</span></a>
+      <a href="monitoring.html" class="active"><i data-lucide="table" style="width:14px;height:14px;"></i> <span>Monitoring</span></a>
+      <a href="canvass.html"><i data-lucide="table-2" style="width:14px;height:14px;"></i> <span>Canvass</span></a>
+      <a href="dashboard.html"><i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> <span>Dashboard</span></a>
+      <a href="suppliers.html"><i data-lucide="building-2" style="width:14px;height:14px;"></i> <span>Suppliers</span></a>
+      <a href="accountability.html"><i data-lucide="shield-check" style="width:14px;height:14px;"></i> <span>Accountability</span></a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle theme">
+      <i data-lucide="moon" style="width:16px;height:16px;" id="theme-icon"></i>
+    </button>
+  </div>
+</nav>
+<script src="theme.js"></script>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <span class="page-title">PO Monitoring <span id="toolbar-month-label">— JAN</span></span>
+  <div class="toolbar-sep"></div>
+  <div class="search-wrap">
+    <i data-lucide="search" style="width:13px;height:13px;"></i>
+    <input type="text" id="search-input" placeholder="Search PO, supplier, dept…" />
+  </div>
+  <select id="status-filter" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;padding:6px 10px;outline:none;cursor:pointer;">
+    <option value="">All Statuses</option>
+    <option value="Served">Served</option>
+    <option value="For Delivery">For Delivery</option>
+    <option value="Pending">Pending</option>
+    <option value="Cancelled">Cancelled</option>
+  </select>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-secondary btn-sm" id="col-toggle-btn"><i data-lucide="columns" style="width:13px;height:13px;"></i> Columns</button>
+    <button class="btn btn-secondary btn-sm" id="export-month-btn"><i data-lucide="download" style="width:13px;height:13px;"></i> Export Month</button>
+    <a href="/api/export/year" class="btn btn-secondary btn-sm" target="_blank"><i data-lucide="file-spreadsheet" style="width:13px;height:13px;"></i> Export Year</a>
+    <button class="btn btn-secondary btn-sm" id="scan-folder-btn" style="border-color:var(--yellow);color:var(--yellow);"><i data-lucide="folder-open" style="width:13px;height:13px;"></i> Scan PO Folder</button>
+    <button class="btn btn-primary btn-sm" id="add-btn"><i data-lucide="plus" style="width:13px;height:13px;"></i> Add Entry</button>
+  </div>
+</div>
+
+<!-- Month Tabs -->
+<div class="month-tabs" id="month-tabs"></div>
+
+<!-- Stats Strip -->
+<div class="stats-strip">
+  <div class="stat-pill"><span class="stat-pill-label">Entries</span><span class="stat-pill-value" id="stat-entries">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">Total Amount</span><span class="stat-pill-value" id="stat-total">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">Served</span><span class="stat-pill-value" id="stat-served">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">Pending</span><span class="stat-pill-value" id="stat-pending">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">Cost Savings</span><span class="stat-pill-value" id="stat-savings">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">With PO File</span><span class="stat-pill-value" id="stat-files">—</span></div>
+</div>
+
+<!-- Table -->
+<div class="table-container">
+  <table id="main-table">
+    <thead id="table-head"></thead>
+    <tbody id="table-body"></tbody>
+  </table>
+</div>
+
+<!-- Hidden file input for PDF upload -->
+<input type="file" id="file-input" accept="application/pdf,.pdf" style="display:none;" />
+
+<!-- Column Panel -->
+<div class="panel-overlay" id="panel-overlay"></div>
+<div class="col-panel" id="col-panel">
+  <div class="col-panel-header">
+    <h3>Show / Hide Columns</h3>
+    <button class="modal-close" id="col-panel-close">&times;</button>
+  </div>
+  <div class="col-panel-body" id="col-panel-body"></div>
+  <div class="col-panel-footer">
+    <button class="btn btn-secondary btn-sm" id="col-show-all">Show All</button>
+    <button class="btn btn-secondary btn-sm" id="col-hide-all">Hide All</button>
+  </div>
+</div>
+
+<!-- PDF Viewer Panel -->
+<div class="pdf-overlay" id="pdf-overlay"></div>
+<div class="pdf-panel" id="pdf-panel">
+  <div class="pdf-panel-header">
+    <span class="pdf-panel-title" id="pdf-panel-title">Purchase Order</span>
+    <div class="pdf-panel-actions">
+      <a class="btn btn-secondary btn-sm" id="pdf-download-btn" href="#" download target="_blank">
+        <i data-lucide="download" style="width:12px;height:12px;"></i> Download
+      </a>
+      <button class="btn btn-danger btn-sm" id="pdf-remove-btn">
+        <i data-lucide="trash-2" style="width:12px;height:12px;"></i> Remove
+      </button>
+      <button class="modal-close" id="pdf-panel-close" style="margin-left:4px;">&times;</button>
+    </div>
+  </div>
+  <iframe class="pdf-frame" id="pdf-frame" src=""></iframe>
+</div>
+
+<!-- Add / Edit Modal -->
+<div class="modal-overlay" id="entry-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Add Entry</h2>
+      <button class="modal-close" id="modal-close-btn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" id="form-grid">
+        <div class="form-section-label">PR Information</div>
+        <div class="form-group"><label class="form-label">PR Date</label><input class="form-input" type="date" data-field="PR DATE" /></div>
+        <div class="form-group"><label class="form-label">PR Date Received</label><input class="form-input" type="date" data-field="PR DATE RECEIVED" /></div>
+        <div class="form-group"><label class="form-label">PR No.</label><input class="form-input" type="text" placeholder="PR-2026-001" data-field="PR NO." /></div>
+        <div class="form-group"><label class="form-label">Requesting Dept.</label><input class="form-input" type="text" placeholder="e.g. Admin" data-field="REQUESTING DEPT." /></div>
+        <div class="form-group"><label class="form-label">PR Required Date</label><input class="form-input" type="date" data-field="PR REQUIRED DATE" /></div>
+        <div class="form-group"><label class="form-label">End User/s</label><input class="form-input" type="text" placeholder="Name of end user" data-field="END USER/S" /></div>
+
+        <div class="form-section-label">PO Information</div>
+        <div class="form-group"><label class="form-label">PO Date</label><input class="form-input" type="date" data-field="PO DATE" /></div>
+        <div class="form-group"><label class="form-label">PO Number</label><input class="form-input" type="text" placeholder="PO-2026-001" data-field="PO NUMBER" /></div>
+        <div class="form-group"><label class="form-label">Payment Terms</label><input class="form-input" type="text" placeholder="e.g. 30 days" data-field="PAYMENT TERMS" /></div>
+        <div class="form-group"><label class="form-label">PO Status</label>
+          <select class="form-select" data-field="PURCHASE ORDER STATUS">
+            <option value="">— Select —</option>
+            <option value="Served">Served</option>
+            <option value="For Delivery">For Delivery</option>
+            <option value="Pending">Pending</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Date Delivered</label><input class="form-input" type="date" data-field="DATE DELIVERED" /></div>
+        <div class="form-group"><label class="form-label">Items/Services</label><input class="form-input" type="text" placeholder="Goods / Services" data-field="ITEMS/SERVICES" /></div>
+
+        <div class="form-section-label">Supplier & Item</div>
+        <div class="form-group span-2"><label class="form-label">Supplier's Name</label><input class="form-input" type="text" placeholder="Company name" data-field="SUPPLIER'S NAME" /></div>
+        <div class="form-group"><label class="form-label">Item Code</label><input class="form-input" type="text" placeholder="SKU or code" data-field="ITEM CODE" /></div>
+        <div class="form-group"><label class="form-label">UoM</label><input class="form-input" type="text" placeholder="pcs / box / set" data-field="UoM" /></div>
+        <div class="form-group span-2"><label class="form-label">Item Description</label><input class="form-input" type="text" placeholder="Full item description" data-field="ITEM DESCRIPTION" /></div>
+        <div class="form-group span-2"><label class="form-label">Specifications</label><input class="form-input" type="text" placeholder="Technical specs" data-field="SPECIFICATIONS" /></div>
+
+        <div class="form-section-label">Amounts</div>
+        <div class="form-group"><label class="form-label">QTY</label><input class="form-input" type="number" min="0" step="any" placeholder="0" data-field="QTY" /></div>
+        <div class="form-group"><label class="form-label">Unit Price</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="UNIT PRICE" /></div>
+        <div class="form-group"><label class="form-label">Amount</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="AMOUNT" /></div>
+        <div class="form-group"><label class="form-label">Total Amount</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="TOTAL AMOUNT" /></div>
+        <div class="form-group"><label class="form-label">Original Price</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="ORIGINAL PRICE" /></div>
+        <div class="form-group"><label class="form-label">Total Cost Savings</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="TOTAL COST SAVINGS" /></div>
+
+        <div class="form-section-label">Remarks</div>
+        <div class="form-group span-2"><label class="form-label">Remarks</label><input class="form-input" type="text" placeholder="Any additional notes" data-field="REMARKS" /></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn"><i data-lucide="save" style="width:13px;height:13px;"></i> Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal" style="max-width:380px;padding:32px 24px 24px;text-align:center;">
+    <div style="font-size:32px;margin-bottom:10px;">🗑️</div>
+    <h3 style="font-size:16px;font-weight:700;">Delete this entry?</h3>
+    <p style="font-size:13px;color:var(--text-2);margin-top:6px;">This cannot be undone. The PO file attached (if any) will also be deleted.</p>
+    <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
+      <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+      <button class="btn btn-danger" id="confirm-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+const MONTH_ORDER = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+const ALL_COLUMNS = [
+  { key: "PO FILE",                label: "PO File",      visible: true  },   // ← NEW
+  { key: "PR DATE",                label: "PR Date",      visible: true  },
+  { key: "PR DATE RECEIVED",       label: "PR Rcvd",      visible: false },
+  { key: "PR NO.",                 label: "PR No.",        visible: true  },
+  { key: "REQUESTING DEPT.",       label: "Dept",          visible: true  },
+  { key: "PO DATE",                label: "PO Date",      visible: true  },
+  { key: "PO NUMBER",              label: "PO No.",        visible: true  },
+  { key: "END USER/S",             label: "End User",     visible: false },
+  { key: "SUPPLIER'S NAME",        label: "Supplier",     visible: true  },
+  { key: "ITEM CODE",              label: "Item Code",    visible: false },
+  { key: "ITEM DESCRIPTION",       label: "Item Desc",    visible: true  },
+  { key: "SPECIFICATIONS",         label: "Specs",        visible: false },
+  { key: "QTY",                    label: "Qty",          visible: true  },
+  { key: "UoM",                    label: "UoM",          visible: false },
+  { key: "UNIT PRICE",             label: "Unit Price",   visible: true  },
+  { key: "AMOUNT",                 label: "Amount",       visible: false },
+  { key: "TOTAL AMOUNT",           label: "Total Amt",    visible: true  },
+  { key: "PAYMENT TERMS",          label: "Payment",      visible: false },
+  { key: "PR REQUIRED DATE",       label: "PR Req Date",  visible: false },
+  { key: "DATE DELIVERED",         label: "Delivered",    visible: true  },
+  { key: "REMARKS",                label: "Remarks",      visible: false },
+  { key: "PURCHASE ORDER STATUS",  label: "Status",       visible: true  },
+  { key: "ITEMS/SERVICES",         label: "Type",         visible: false },
+  { key: "ORIGINAL PRICE",         label: "Orig Price",   visible: false },
+  { key: "TOTAL COST SAVINGS",     label: "Savings",      visible: true  },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════
+let currentMonth    = MONTH_ORDER[new Date().getMonth()];
+let allRows         = [];
+let filteredRows    = [];
+let editingId       = null;
+let deleteTargetId  = null;
+let expandedGroups  = new Set(); // tracks which PO groups are open
+let uploadTargetId  = null;
+let pdfViewingId    = null;
+let monthCounts     = {};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════
+function fmt(n) {
+  if (!n && n !== 0) return "—";
+  return "₱" + Number(n).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function statusBadge(s) {
+  if (!s) return '<span class="badge badge-grey">—</span>';
+  const u = s.toLowerCase();
+  let cls = "badge-grey";
+  if (u.includes("served") || u.includes("complete")) cls = "badge-green";
+  else if (u.includes("deliver"))                      cls = "badge-blue";
+  else if (u.includes("cancel"))                       cls = "badge-red";
+  else if (u.includes("pending"))                      cls = "badge-yellow";
+  return `<span class="badge ${cls}">${s}</span>`;
+}
+function toast(msg, type = "success") {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${type === "success" ? "✅" : "❌"}</span><span>${msg}</span>`;
+  document.getElementById("toast-container").appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+function visibleCols() { return ALL_COLUMNS.filter(c => c.visible); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MONTH TABS
+// ═══════════════════════════════════════════════════════════════════════════
+function renderTabs() {
+  const c = document.getElementById("month-tabs");
+  c.innerHTML = MONTH_ORDER.map(m => `
+    <button class="month-tab ${m === currentMonth ? "active" : ""}" data-month="${m}">
+      ${m}<span class="tab-count">${monthCounts[m] ?? 0}</span>
+    </button>`).join("");
+  c.querySelectorAll(".month-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      currentMonth = btn.dataset.month;
+      document.getElementById("toolbar-month-label").textContent = `— ${currentMonth}`;
+      renderTabs(); loadMonth();
+    });
+  });
+}
+async function loadAllCounts() {
+  for (const m of MONTH_ORDER) {
+    try {
+      const r = await fetch(`/api/sheet/${m}`);
+      const d = await r.json();
+      monthCounts[m] = (d.data || []).length;
+    } catch(e) { monthCounts[m] = 0; }
+  }
+  renderTabs();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOAD DATA
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadMonth() {
+  document.getElementById("table-body").innerHTML =
+    `<tr><td colspan="99" style="text-align:center;padding:40px;color:var(--text-3);">Loading…</td></tr>`;
+  try {
+    const r = await fetch(`/api/sheet/${currentMonth}`);
+    const d = await r.json();
+    allRows = d.data || [];
+    monthCounts[currentMonth] = allRows.length;
+    renderTabs();
+    applyFilter();
+  } catch(e) { toast("Failed to load data", "error"); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILTER & RENDER
+// ═══════════════════════════════════════════════════════════════════════════
+function applyFilter() {
+  const q = document.getElementById("search-input").value.toLowerCase().trim();
+  const s = document.getElementById("status-filter").value.toLowerCase();
+  filteredRows = allRows.filter(r => {
+    const mq = !q ||
+      (r["PO NUMBER"]       || "").toLowerCase().includes(q) ||
+      (r["PR NO."]          || "").toLowerCase().includes(q) ||
+      (r["SUPPLIER'S NAME"] || "").toLowerCase().includes(q) ||
+      (r["REQUESTING DEPT."]|| "").toLowerCase().includes(q) ||
+      (r["ITEM DESCRIPTION"]|| "").toLowerCase().includes(q);
+    const ms = !s || (r["PURCHASE ORDER STATUS"] || "").toLowerCase().includes(s);
+    return mq && ms;
+  });
+  renderTable();
+  renderStats();
+}
+
+function renderTable() {
+  const cols = visibleCols();
+
+  // Fixed headers for the summary (PO) row
+  // Item sub-row always shows these regardless of visible cols
+  const ITEM_COLS = [
+    { key: "ITEM CODE",       label: "Item Code"   },
+    { key: "ITEM DESCRIPTION",label: "Item Desc"   },
+    { key: "SPECIFICATIONS",  label: "Specs"       },
+    { key: "QTY",             label: "Qty"         },
+    { key: "UoM",             label: "UoM"         },
+    { key: "UNIT PRICE",      label: "Unit Price"  },
+    { key: "AMOUNT",          label: "Amount"      },
+    { key: "TOTAL AMOUNT",    label: "Total Amt"   },
+  ];
+
+  // Summary (PO-level) cols — exclude item-level cols and PO FILE (shown in group header)
+  const ITEM_KEYS = new Set(ITEM_COLS.map(c => c.key));
+  const summaryCols = cols.filter(c => !ITEM_KEYS.has(c.key) && c.key !== "PO FILE");
+
+  document.getElementById("table-head").innerHTML = `<tr>
+    <th style="width:28px;"></th>
+    <th style="width:32px;">#</th>
+    ${summaryCols.map(c => `<th>${c.label}</th>`).join("")}
+    <th>PO File</th>
+    <th style="width:80px;text-align:center;">Actions</th>
+  </tr>`;
+
+  const tbody = document.getElementById("table-body");
+  if (!filteredRows.length) {
+    tbody.innerHTML = `<tr><td colspan="${summaryCols.length + 4}">
+      <div class="empty-state">
+        <div><i data-lucide="inbox" style="width:32px;height:32px;"></i></div>
+        <h3>No entries for ${currentMonth}</h3>
+        <p>Click <strong>Add Entry</strong> to start, or adjust your search.</p>
+      </div></td></tr>`;
+    lucide.createIcons(); return;
+  }
+
+  // ── Group rows by PO NUMBER ───────────────────────────────────────────────
+  // Rows with no PO number get their own solo group keyed by id
+  const groups = [];
+  const seen   = new Map(); // poNumber → group index
+
+  for (const r of filteredRows) {
+    const poKey = (r["PO NUMBER"] || "").trim();
+    if (poKey && seen.has(poKey)) {
+      groups[seen.get(poKey)].items.push(r);
+    } else {
+      const idx = groups.length;
+      groups.push({
+        poNumber:  poKey || `__solo_${r.id}`,
+        isSolo:    !poKey,
+        // Use first row's PO-level fields for the summary row
+        summary:   r,
+        items:     [r],
+        expanded:  expandedGroups.has(poKey || `__solo_${r.id}`),
+      });
+      if (poKey) seen.set(poKey, idx);
+    }
+  }
+
+  const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile + actions
+
+  let html = "";
+  let groupNum = 0;
+
+  for (const group of groups) {
+    groupNum++;
+    const s          = group.summary;
+    const itemCount  = group.items.length;
+    const isExpanded = group.expanded;
+    const gKey       = escHtml(group.poNumber);
+
+    // ── PO file button (uses first row's id for upload/view) ──────────────
+    const fileRowId  = group.items[0].id;
+    const fileVal    = group.items[0]["PO FILE"] || s["PO FILE"] || "";
+    const fileCell   = fileVal
+      ? `<button class="btn-file-view" onclick="viewPdf(${fileRowId},'${escHtml(fileVal)}')">
+           <i data-lucide="file-text" style="width:11px;height:11px;"></i> View
+         </button>
+         <button class="btn-file-remove" title="Remove" onclick="removeFile(${fileRowId})">
+           <i data-lucide="x" style="width:10px;height:10px;"></i>
+         </button>`
+      : `<button class="btn-file-upload" onclick="triggerUpload(${fileRowId})">
+           <i data-lucide="paperclip" style="width:11px;height:11px;"></i> Attach
+         </button>`;
+
+    // ── Summary / PO group header row ─────────────────────────────────────
+    html += `
+    <tr class="po-group-row ${isExpanded ? "expanded" : ""}"
+        data-group="${gKey}" onclick="toggleGroup('${gKey}')">
+      <td class="toggle-cell">
+        <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
+      </td>
+      <td style="color:var(--text-3);font-size:11px;font-family:var(--font-mono);">${groupNum}</td>
+      ${(() => {
+        // Pre-calculate savings for this group to show in header
+        let hdrSavings = 0;
+        let hdrTotal   = 0;
+        for (const item of group.items) {
+          const q = parseFloat(item["QTY"]) || 0;
+          const p = parseFloat(item["UNIT PRICE"]) || 0;
+          const a = q * p;
+          if (a < 0) hdrSavings += Math.abs(a);
+          else        hdrTotal   += a;
+        }
+        return summaryCols.map(c => {
+          const v = s[c.key];
+          if (c.key === "PURCHASE ORDER STATUS") return `<td>${statusBadge(v)}</td>`;
+          if (c.key === "TOTAL AMOUNT") {
+            // Show calculated net total + savings badge in this cell
+            const net = hdrTotal - hdrSavings;
+            return `<td style="font-family:var(--font-mono);font-size:11px;font-weight:700;">
+              <span style="color:var(--green);">${fmt(net)}</span>
+              ${hdrSavings > 0
+                ? `<span style="display:inline-block;background:#3a2e0a;color:var(--yellow);border:1px solid #5a480f;font-size:10px;padding:1px 6px;border-radius:99px;margin-left:6px;font-family:var(--font-mono);">-${fmt(hdrSavings)}</span>`
+                : ''}
+            </td>`;
+          }
+          if (["ORIGINAL PRICE","TOTAL COST SAVINGS"].includes(c.key))
+            return `<td style="font-family:var(--font-mono);font-size:11px;font-weight:600;">${v ? fmt(v) : "—"}</td>`;
+          return `<td title="${escHtml(v||"")}" style="font-weight:500;">${v || "—"}</td>`;
+        }).join("");
+      })()}
+      <td class="po-file-cell" onclick="event.stopPropagation()">${fileCell}</td>
+      <td class="td-actions" onclick="event.stopPropagation()">
+        <button class="btn-icon" title="Add item to this PO" onclick="openAddItem('${gKey}', ${fileRowId})">
+          <i data-lucide="plus" style="width:13px;height:13px;"></i>
+        </button>
+        <button class="btn-icon" title="Edit PO details" onclick="openEdit(${s.id})">
+          <i data-lucide="pencil" style="width:13px;height:13px;"></i>
+        </button>
+      </td>
+    </tr>`;
+
+    // ── Item sub-rows (hidden when collapsed) ──────────────────────────────
+    if (itemCount > 0) {
+      // Sub-header
+      html += `
+      <tr class="item-subheader" data-group="${gKey}" style="display:${isExpanded?"table-row":"none"}">
+        <td colspan="2"></td>
+        ${ITEM_COLS.map(c => `<td style="font-size:10px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.06em;color:var(--text-3);padding:4px 12px;">${c.label}</td>`).join("")}
+        <td colspan="${totalCols - ITEM_COLS.length - 2}"></td>
+      </tr>`;
+
+      // ── Compute group totals ──────────────────────────────────────────────
+      // Positive items = actual PO cost
+      // Negative items = discounts/savings (stored as negative unit price)
+      let groupPositiveTotal = 0;
+      let groupSavings       = 0;
+
+      for (const item of group.items) {
+        const qty       = parseFloat(item["QTY"])        || 0;
+        const unitPrice = parseFloat(item["UNIT PRICE"]) || 0;
+        const calcAmt   = qty * unitPrice;
+        if (calcAmt < 0) {
+          groupSavings += Math.abs(calcAmt);
+        } else {
+          groupPositiveTotal += calcAmt;
+        }
+
+        html += `
+        <tr class="item-row" data-group="${gKey}" data-id="${item.id}"
+            style="display:${isExpanded?"table-row":"none"}">
+          <td colspan="2"></td>
+          ${ITEM_COLS.map(c => {
+            const v = item[c.key];
+            const calc = qty * unitPrice;
+            const isNeg = calc < 0;
+            if (c.key === "AMOUNT") {
+              return `<td style="font-family:var(--font-mono);font-size:11px;${isNeg?'color:var(--red);':''}">${calc ? fmt(calc) : "—"}</td>`;
+            }
+            if (c.key === "TOTAL AMOUNT") {
+              return `<td style="font-family:var(--font-mono);font-size:11px;font-weight:600;${isNeg?'color:var(--red);':'color:var(--green);'}">${calc ? fmt(calc) : "—"}</td>`;
+            }
+            if (c.key === "UNIT PRICE")
+              return `<td style="font-family:var(--font-mono);font-size:11px;${isNeg?'color:var(--red);':''}">${v ? fmt(v) : "—"}</td>`;
+            return `<td title="${escHtml(v||"")}" style="color:var(--text-2);">${v || "—"}</td>`;
+          }).join("")}
+          <td></td>
+          <td class="td-actions">
+            <button class="btn-icon" title="Edit item" onclick="openEdit(${item.id})">
+              <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+            </button>
+            <button class="btn-icon danger" title="Delete item" onclick="confirmDelete(${item.id})">
+              <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
+            </button>
+          </td>
+        </tr>`;
+      }
+
+      // ── Group total row — inline with Amount and Total Amt columns ────────
+      // Aligns exactly under the AMOUNT and TOTAL AMOUNT columns
+      // Also shows SAVINGS column if any negative items exist
+      const amtIdx   = ITEM_COLS.findIndex(c => c.key === "AMOUNT");
+      const totalIdx = ITEM_COLS.findIndex(c => c.key === "TOTAL AMOUNT");
+      const netTotal = groupPositiveTotal - groupSavings;
+
+      html += `
+      <tr class="item-total-row" data-group="${gKey}"
+          style="display:${isExpanded?"table-row":"none"}">
+        <td colspan="2"></td>
+        ${ITEM_COLS.map((c, ci) => {
+          if (c.key === "AMOUNT") return `
+            <td style="font-family:var(--font-mono);font-size:11px;font-weight:700;border-top:2px solid var(--border);">
+              <span style="font-size:9px;font-family:var(--font-mono);color:var(--text-3);text-transform:uppercase;display:block;letter-spacing:0.06em;margin-bottom:2px;">PO Total</span>
+              <span style="color:var(--green);">${fmt(groupPositiveTotal)}</span>
+            </td>`;
+          if (c.key === "TOTAL AMOUNT") return `
+            <td style="font-family:var(--font-mono);font-size:11px;font-weight:700;border-top:2px solid var(--border);">
+              <span style="font-size:9px;font-family:var(--font-mono);color:var(--text-3);text-transform:uppercase;display:block;letter-spacing:0.06em;margin-bottom:2px;">Net Total</span>
+              <span style="color:${groupSavings > 0 ? 'var(--accent-2)' : 'var(--green)'};">${fmt(netTotal)}</span>
+              ${groupSavings > 0 ? `<span style="font-size:10px;color:var(--yellow);display:block;margin-top:2px;">▼ ${fmt(groupSavings)} saved</span>` : ''}
+            </td>`;
+          return `<td style="border-top:2px solid var(--border);"></td>`;
+        }).join("")}
+        <td style="border-top:2px solid var(--border);"></td>
+        <td style="border-top:2px solid var(--border);"></td>
+      </tr>`;
+
+      // Item count badge on group row
+      // (inject via dataset after render)
+    }
+
+    // Spacer between groups
+    html += `<tr class="group-spacer"><td colspan="${totalCols}" style="height:3px;background:var(--bg-3);"></td></tr>`;
+  }
+
+  tbody.innerHTML = html;
+  lucide.createIcons();
+
+  // (item count badges removed — cleaner without them)
+}
+
+function escHtml(s) {
+  return String(s || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function renderStats() {
+  const rows = filteredRows;
+
+  // Use same calc logic as the table: QTY × UNIT PRICE
+  // Negative = savings/discount, Positive = actual spend
+  // Stats are per unique PO (group), not per item row
+  // so we group first then sum — matches what the table shows
+
+  // Group by PO number (same logic as renderTable)
+  const groups = new Map();
+  for (const r of rows) {
+    const key = (r["PO NUMBER"] || "").trim() || `__solo_${r.id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+
+  let totalSpend  = 0;  // sum of positive calc amounts across all POs
+  let totalSavings = 0; // sum of abs(negative calc amounts) across all POs
+  let uniquePOs   = 0;  // number of unique POs (groups)
+
+  for (const [key, items] of groups) {
+    let grpPositive = 0;
+    let grpSavings  = 0;
+    for (const item of items) {
+      const qty   = parseFloat(item["QTY"])        || 0;
+      const price = parseFloat(item["UNIT PRICE"]) || 0;
+      const amt   = qty * price;
+      if (amt < 0) grpSavings  += Math.abs(amt);
+      else          grpPositive += amt;
+    }
+    totalSpend   += grpPositive;
+    totalSavings += grpSavings;
+    uniquePOs++;
+  }
+
+  // Status counts — count unique POs not rows
+  const servedPOs  = new Set();
+  const pendingPOs = new Set();
+  for (const r of rows) {
+    const key    = (r["PO NUMBER"] || "").trim() || `__solo_${r.id}`;
+    const status = (r["PURCHASE ORDER STATUS"] || "").toLowerCase();
+    if (status.includes("served") || status.includes("complete")) servedPOs.add(key);
+    if (status.includes("pending") || status.includes("deliver"))  pendingPOs.add(key);
+  }
+
+  const files = new Set(
+    rows.filter(r => r["PO FILE"]).map(r => (r["PO NUMBER"]||"").trim() || `__solo_${r.id}`)
+  ).size;
+
+  document.getElementById("stat-entries").textContent = uniquePOs;
+  document.getElementById("stat-total").textContent   = fmt(totalSpend);
+  document.getElementById("stat-served").textContent  = servedPOs.size;
+  document.getElementById("stat-pending").textContent = pendingPOs.size;
+  document.getElementById("stat-savings").textContent = fmt(totalSavings);
+  document.getElementById("stat-files").textContent   = files;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP TOGGLE
+// ═══════════════════════════════════════════════════════════════════════════
+function toggleGroup(gKey) {
+  if (expandedGroups.has(gKey)) {
+    expandedGroups.delete(gKey);
+  } else {
+    expandedGroups.add(gKey);
+  }
+  // Toggle rows without full re-render (fast)
+  const isNowExpanded = expandedGroups.has(gKey);
+  const groupRow = document.querySelector(`.po-group-row[data-group="${CSS.escape(gKey)}"]`);
+  if (groupRow) {
+    groupRow.classList.toggle("expanded", isNowExpanded);
+    const icon = groupRow.querySelector(".toggle-icon");
+    if (icon) icon.textContent = isNowExpanded ? "▼" : "▶";
+  }
+  document.querySelectorAll(`[data-group="${CSS.escape(gKey)}"]:not(.po-group-row)`).forEach(row => {
+    row.style.display = isNowExpanded ? "table-row" : "none";
+  });
+}
+
+// Pre-fill PO fields when adding a new item to an existing PO
+function openAddItem(poNumber, referenceRowId) {
+  const ref = allRows.find(r => r.id === referenceRowId);
+  editingId = null;
+  document.getElementById("modal-title").textContent = `Add Item — PO ${poNumber}`;
+  // Clear form first
+  document.querySelectorAll("#form-grid [data-field]").forEach(el => el.value = "");
+  // Pre-fill PO-level fields from the reference row
+  if (ref) {
+    const PO_FIELDS = ["PO NUMBER","PO DATE","SUPPLIER'S NAME","REQUESTING DEPT.",
+                       "END USER/S","PAYMENT TERMS","PURCHASE ORDER STATUS","ITEMS/SERVICES"];
+    PO_FIELDS.forEach(field => {
+      const el = document.querySelector(`#form-grid [data-field="${field}"]`);
+      if (el) el.value = ref[field] || "";
+    });
+  }
+  document.getElementById("entry-modal").classList.add("open");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PDF FILE HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+function triggerUpload(rowId) {
+  uploadTargetId = rowId;
+  const fi = document.getElementById("file-input");
+  fi.value = "";
+  fi.click();
+}
+
+document.getElementById("file-input").addEventListener("change", async function() {
+  const file = this.files[0];
+  if (!file || !uploadTargetId) return;
+
+  const fd = new FormData();
+  fd.append("po_file", file);
+
+  try {
+    toast("Uploading…", "success");
+    const res = await fetch(`/api/row/${uploadTargetId}/file`, { method: "POST", body: fd });
+    const d   = await res.json();
+    if (d.success) {
+      toast("PO file attached ✓");
+      await loadMonth();
+    } else {
+      toast(d.error || "Upload failed", "error");
+    }
+  } catch(e) {
+    toast("Upload failed", "error");
+  }
+  uploadTargetId = null;
+});
+
+function viewPdf(rowId, filename) {
+  pdfViewingId = rowId;
+  const url  = `/api/row/${rowId}/file`;
+  document.getElementById("pdf-frame").src          = url;
+  document.getElementById("pdf-panel-title").textContent = filename;
+  document.getElementById("pdf-download-btn").href  = url;
+  document.getElementById("pdf-download-btn").download = filename;
+  document.getElementById("pdf-panel").classList.add("open");
+  document.getElementById("pdf-overlay").classList.add("open");
+}
+
+function closePdfPanel() {
+  document.getElementById("pdf-panel").classList.remove("open");
+  document.getElementById("pdf-overlay").classList.remove("open");
+  document.getElementById("pdf-frame").src = "";
+  pdfViewingId = null;
+}
+
+async function removeFile(rowId) {
+  if (!confirm("Remove the attached PO file from this row?")) return;
+  try {
+    const res = await fetch(`/api/row/${rowId}/file`, { method: "DELETE" });
+    const d   = await res.json();
+    if (d.success) { toast("PO file removed"); closePdfPanel(); await loadMonth(); }
+    else toast(d.error || "Failed", "error");
+  } catch(e) { toast("Error", "error"); }
+}
+
+document.getElementById("pdf-panel-close").addEventListener("click", closePdfPanel);
+document.getElementById("pdf-overlay").addEventListener("click", closePdfPanel);
+document.getElementById("pdf-remove-btn").addEventListener("click", () => {
+  if (pdfViewingId) removeFile(pdfViewingId);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COLUMN PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+function buildColPanel() {
+  const body = document.getElementById("col-panel-body");
+  body.innerHTML = ALL_COLUMNS.map((c, i) => `
+    <div class="col-item">
+      <input type="checkbox" id="col-${i}" data-idx="${i}" ${c.visible ? "checked" : ""} />
+      <label for="col-${i}">${c.label}</label>
+    </div>`).join("");
+  body.querySelectorAll("input[type=checkbox]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      ALL_COLUMNS[+cb.dataset.idx].visible = cb.checked;
+      renderTable();
+    });
+  });
+}
+document.getElementById("col-toggle-btn").addEventListener("click", () => {
+  document.getElementById("col-panel").classList.add("open");
+  document.getElementById("panel-overlay").classList.add("open");
+});
+document.getElementById("col-panel-close").addEventListener("click", () => {
+  document.getElementById("col-panel").classList.remove("open");
+  document.getElementById("panel-overlay").classList.remove("open");
+});
+document.getElementById("panel-overlay").addEventListener("click", () => {
+  document.getElementById("col-panel").classList.remove("open");
+  document.getElementById("panel-overlay").classList.remove("open");
+});
+document.getElementById("col-show-all").addEventListener("click", () => {
+  ALL_COLUMNS.forEach((c,i) => { c.visible = true; document.getElementById(`col-${i}`).checked = true; });
+  renderTable();
+});
+document.getElementById("col-hide-all").addEventListener("click", () => {
+  ALL_COLUMNS.forEach((c,i) => {
+    const keep = c.key === "PO FILE" || c.key === "PO NUMBER" || c.key === "SUPPLIER'S NAME";
+    c.visible = keep; document.getElementById(`col-${i}`).checked = keep;
+  });
+  renderTable();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADD / EDIT MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+function openAdd() {
+  editingId = null;
+  document.getElementById("modal-title").textContent = `Add Entry — ${currentMonth}`;
+  document.querySelectorAll("#form-grid [data-field]").forEach(el => el.value = "");
+  document.getElementById("entry-modal").classList.add("open");
+}
+function openEdit(id) {
+  const row = allRows.find(r => r.id === id);
+  if (!row) return;
+  editingId = id;
+  document.getElementById("modal-title").textContent = `Edit Entry — ${currentMonth}`;
+  document.querySelectorAll("#form-grid [data-field]").forEach(el => {
+    el.value = row[el.dataset.field] ?? "";
+  });
+  document.getElementById("entry-modal").classList.add("open");
+}
+function closeModal() {
+  document.getElementById("entry-modal").classList.remove("open");
+  editingId = null;
+}
+
+// Auto-calc Amount
+document.querySelector('[data-field="QTY"]').addEventListener("input", autoCalc);
+document.querySelector('[data-field="UNIT PRICE"]').addEventListener("input", autoCalc);
+function autoCalc() {
+  const qty   = parseFloat(document.querySelector('[data-field="QTY"]').value) || 0;
+  const price = parseFloat(document.querySelector('[data-field="UNIT PRICE"]').value) || 0;
+  if (qty && price) {
+    document.querySelector('[data-field="AMOUNT"]').value       = (qty * price).toFixed(2);
+    document.querySelector('[data-field="TOTAL AMOUNT"]').value = (qty * price).toFixed(2);
+  }
+}
+
+document.getElementById("modal-save-btn").addEventListener("click", async () => {
+  const btn  = document.getElementById("modal-save-btn");
+  const data = { month: currentMonth };
+  document.querySelectorAll("#form-grid [data-field]").forEach(el => { data[el.dataset.field] = el.value; });
+
+  if (!data["PO NUMBER"] && !data["PR NO."]) {
+    toast("Enter at least a PO Number or PR No.", "error"); return;
+  }
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    let res;
+    if (editingId) {
+      res = await fetch(`/api/row/${editingId}`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify(data) });
+    } else {
+      res = await fetch(`/api/sheet/${currentMonth}/add`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(data) });
+    }
+    const result = await res.json();
+    if (result.success || result.id) {
+      toast(editingId ? "Entry updated ✓" : "Entry added ✓");
+      closeModal(); await loadMonth();
+    } else { toast(result.error || "Save failed", "error"); }
+  } catch(e) { toast("Network error", "error"); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="save" style="width:13px;height:13px;"></i> Save Entry';
+    lucide.createIcons();
+  }
+});
+
+document.getElementById("add-btn").addEventListener("click", openAdd);
+document.getElementById("modal-close-btn").addEventListener("click", closeModal);
+document.getElementById("modal-cancel-btn").addEventListener("click", closeModal);
+document.getElementById("entry-modal").addEventListener("click", e => {
+  if (e.target === document.getElementById("entry-modal")) closeModal();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE
+// ═══════════════════════════════════════════════════════════════════════════
+function confirmDelete(id) {
+  deleteTargetId = id;
+  document.getElementById("confirm-modal").classList.add("open");
+}
+document.getElementById("confirm-cancel").addEventListener("click", () => {
+  document.getElementById("confirm-modal").classList.remove("open");
+  deleteTargetId = null;
+});
+document.getElementById("confirm-delete").addEventListener("click", async () => {
+  if (!deleteTargetId) return;
+  try {
+    const res = await fetch(`/api/row/${deleteTargetId}`, { method: "DELETE" });
+    const d   = await res.json();
+    if (d.success) {
+      toast("Entry deleted");
+      document.getElementById("confirm-modal").classList.remove("open");
+      deleteTargetId = null;
+      await loadMonth();
+    } else { toast(d.error || "Delete failed", "error"); }
+  } catch(e) { toast("Network error", "error"); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════════════════
+document.getElementById("export-month-btn").addEventListener("click", () => {
+  window.open(`/api/export/month/${currentMonth}`, "_blank");
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEARCH
+// ═══════════════════════════════════════════════════════════════════════════
+document.getElementById("search-input").addEventListener("input", applyFilter);
+document.getElementById("status-filter").addEventListener("change", applyFilter);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+(async function init() {
+  document.getElementById("toolbar-month-label").textContent = `— ${currentMonth}`;
+  buildColPanel();
+  renderTabs();
+  await loadMonth();
+  loadAllCounts();
+  lucide.createIcons();
+})();
+</script>
+</body>
+</html>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCAN FOLDER MODAL  (appended)
+═══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="scan-modal">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header">
+      <h2>📂 Auto-Scan PO Folder</h2>
+      <button class="modal-close" id="scan-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:16px;line-height:1.7;">
+        Point to the folder that contains your PO PDFs.<br>
+        The system will read each filename, extract the PO number, match it to a row in the database, and link the file automatically.
+      </p>
+
+      <!-- How it works example -->
+      <div style="background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:18px;font-family:var(--font-mono);font-size:11px;color:var(--text-2);line-height:2;">
+        <span style="color:var(--text-3);">Example filenames it can read:</span><br>
+        <span style="color:var(--green);">✓</span> CCI - PO#400085166 PRICOM.pdf &nbsp;→&nbsp; matches PO <strong style="color:var(--text);">400085166</strong><br>
+        <span style="color:var(--green);">✓</span> CCI - PO#1000021077 RB SHINRAI.pdf &nbsp;→&nbsp; matches PO <strong style="color:var(--text);">1000021077</strong><br>
+        <span style="color:var(--yellow);">✗</span> Invoice_March.pdf &nbsp;→&nbsp; no PO number found, skipped
+      </div>
+
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">Folder Path</label>
+        <input class="form-input" type="text" id="scan-folder-path"
+          placeholder="e.g. C:\Users\ITSU\Desktop\PO Files"
+          style="font-family:var(--font-mono);font-size:12px;" />
+        <span style="font-size:11px;color:var(--text-3);margin-top:4px;display:block;">
+          Paste the full path to your PO folder. Original files are <strong>not moved or deleted</strong> — they are copied into the app's storage.
+        </span>
+      </div>
+
+      <!-- Results area (hidden until scan runs) -->
+      <div id="scan-results" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+          <div class="stat-pill">
+            <span class="stat-pill-label">Total PDFs</span>
+            <span class="stat-pill-value" id="sr-total">0</span>
+          </div>
+          <div class="stat-pill" style="border-color:#2d5a32;">
+            <span class="stat-pill-label" style="color:var(--green);">Matched</span>
+            <span class="stat-pill-value" style="color:var(--green);" id="sr-matched">0</span>
+          </div>
+          <div class="stat-pill" style="border-color:#5a480f;">
+            <span class="stat-pill-label" style="color:var(--yellow);">Unmatched</span>
+            <span class="stat-pill-value" style="color:var(--yellow);" id="sr-unmatched">0</span>
+          </div>
+        </div>
+
+        <!-- Matched list -->
+        <div id="sr-matched-list" style="margin-bottom:12px;"></div>
+
+        <!-- Unmatched list -->
+        <div id="sr-unmatched-list"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="scan-cancel-btn">Close</button>
+      <button class="btn btn-primary" id="scan-run-btn">
+        <i data-lucide="scan-search" style="width:13px;height:13px;"></i> Scan &amp; Link
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Scan Folder Logic ─────────────────────────────────────────────────────────
+document.getElementById("scan-folder-btn").addEventListener("click", () => {
+  // Pre-fill with a sensible default if empty
+  const inp = document.getElementById("scan-folder-path");
+  if (!inp.value) inp.value = "C:\\Users\\ITSU\\Desktop\\PO Files";
+  document.getElementById("scan-results").style.display = "none";
+  document.getElementById("scan-modal").classList.add("open");
+  lucide.createIcons();
+});
+
+document.getElementById("scan-modal-close").addEventListener("click", closeScanModal);
+document.getElementById("scan-cancel-btn").addEventListener("click", closeScanModal);
+document.getElementById("scan-modal").addEventListener("click", e => {
+  if (e.target === document.getElementById("scan-modal")) closeScanModal();
+});
+
+function closeScanModal() {
+  document.getElementById("scan-modal").classList.remove("open");
+}
+
+document.getElementById("scan-run-btn").addEventListener("click", async () => {
+  const folderPath = document.getElementById("scan-folder-path").value.trim();
+  if (!folderPath) { toast("Please enter a folder path", "error"); return; }
+
+  const btn = document.getElementById("scan-run-btn");
+  btn.disabled = true;
+  btn.textContent = "Scanning…";
+
+  try {
+    const res  = await fetch("/api/po-files/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folderPath }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      toast(data.error || "Scan failed", "error");
+      return;
+    }
+
+    // Show results
+    document.getElementById("scan-results").style.display = "block";
+    document.getElementById("sr-total").textContent     = data.total;
+    document.getElementById("sr-matched").textContent   = data.matched;
+    document.getElementById("sr-unmatched").textContent = data.unmatched;
+
+    // Matched list
+    const matchedEl = document.getElementById("sr-matched-list");
+    if (data.details.matched.length) {
+      matchedEl.innerHTML = `
+        <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Matched Files</div>
+        <div style="background:var(--bg-3);border:1px solid #2d5a32;border-radius:var(--radius);max-height:160px;overflow-y:auto;padding:8px 10px;">
+          ${data.details.matched.map(m => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-2);font-size:11px;">
+              <span style="color:var(--green);font-size:14px;">✓</span>
+              <span style="font-family:var(--font-mono);color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.filename}">${m.filename}</span>
+              <span style="color:var(--text-3);white-space:nowrap;">→ PO ${m.dbPoNumber}</span>
+            </div>`).join("")}
+        </div>`;
+    } else {
+      matchedEl.innerHTML = "";
+    }
+
+    // Unmatched list
+    const unmatchedEl = document.getElementById("sr-unmatched-list");
+    if (data.details.unmatched.length) {
+      unmatchedEl.innerHTML = `
+        <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;margin-top:10px;">Unmatched Files</div>
+        <div style="background:var(--bg-3);border:1px solid #5a480f;border-radius:var(--radius);max-height:120px;overflow-y:auto;padding:8px 10px;">
+          ${data.details.unmatched.map(u => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-2);font-size:11px;">
+              <span style="color:var(--yellow);font-size:14px;">!</span>
+              <span style="font-family:var(--font-mono);color:var(--text-2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${u.filename}">${u.filename}</span>
+              <span style="color:var(--text-3);white-space:nowrap;font-size:10px;">${u.reason}</span>
+            </div>`).join("")}
+        </div>`;
+    } else {
+      unmatchedEl.innerHTML = "";
+    }
+
+    if (data.matched > 0) {
+      toast(`✓ ${data.matched} PO file${data.matched > 1 ? "s" : ""} linked successfully`);
+      await loadMonth(); // refresh table so View buttons appear
+    } else {
+      toast("No files were matched. Check the folder path and PO numbers.", "error");
+    }
+
+  } catch(e) {
+    toast("Network error: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="scan-search" style="width:13px;height:13px;"></i> Scan &amp; Link';
+    lucide.createIcons();
+  }
+});
+</script>

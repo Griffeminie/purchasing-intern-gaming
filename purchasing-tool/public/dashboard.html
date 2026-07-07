@@ -7,10 +7,6 @@
   <link rel="stylesheet" href="style.css" />
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
-    #data-note {
-      min-height: 14px;
-      display: block;
-    }
     .stats-row {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -99,34 +95,6 @@
 
     .savings-table { max-height: 300px; overflow-y: auto; }
 
-
-    .clean-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 2000; opacity: 0; pointer-events: none;
-  transition: opacity 0.25s ease;
-      }
-      .clean-overlay.visible { opacity: 1; pointer-events: auto; }
-
-      .clean-modal {
-        background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px;
-        padding: 28px; max-width: 380px; width: 90%; text-align: center;
-        transform: scale(0.9) translateY(10px); opacity: 0;
-        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.4);
-      }
-      .clean-overlay.visible .clean-modal { transform: scale(1) translateY(0); opacity: 1; }
-
-      .clean-icon {
-        width: 44px; height: 44px; border-radius: 50%; background: #2a1800; color: #f59e0b;
-        display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
-      }
-      body.light .clean-icon { background: #fef3d0; color: #b45309; }
-      .clean-modal h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-      .clean-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
-      .clean-actions  { display: flex; gap: 10px; justify-content: center; }
-      .clean-actions button { flex: 1; justify-content: center; }
-    .modal-overlay.show .modal-box { transform: scale(1); }
     @media (max-width: 768px) {
       .stats-row { grid-template-columns: 1fr 1fr; }
       .charts-grid { grid-template-columns: 1fr; }
@@ -149,6 +117,7 @@
       <nav>
         <a href="index.html"><i data-lucide="home" style="width:14px;height:14px;"></i> <span>Home</span></a>
         <a href="scanner.html"><i data-lucide="scan" style="width:14px;height:14px;"></i> <span>Scanner</span></a>
+        <a href="monitoring.html"><i data-lucide="table" style="width:14px;height:14px;"></i> <span>Monitoring</span></a>
         <a href="canvass.html"><i data-lucide="table-2" style="width:14px;height:14px;"></i> <span>Canvass</span></a>
         <a href="dashboard.html" class="active"><i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> <span>Dashboard</span></a>
         <a href="calibrate.html"><i data-lucide="move" style="width:14px;height:14px;"></i> <span>Calibrate</span></a>
@@ -171,15 +140,12 @@
         <div>
           <h1>Monitoring Dashboard</h1>
           <p>Live visualization from monitoring.xlsx — Year 2026</p>
-          <p style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:4px;min-width:1px;" id="data-note">Loading...</p>
+          <p style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:4px;" id="data-note">Loading...</p>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span id="cache-badge" style="display:none;font-size:11px;font-family:var(--font-mono);color:var(--text-3);background:var(--bg-3);border:1px solid var(--border);padding:3px 9px;border-radius:99px;"></span>
           <button class="btn btn-secondary" id="refresh-btn" onclick="loadDashboard(true)" style="display:flex;align-items:center;gap:7px;">
             <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Refresh
-          </button>
-          <button class="btn btn-secondary" id="cleanMonitoringBtn" type="button" style="display:flex;align-items:center;gap:7px;">
-            <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Clean Monitoring Data
           </button>
         </div>
       </div>
@@ -329,23 +295,10 @@
         <pre id="raw-response" style="display:none;margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:10px;overflow-x:auto;max-height:300px;overflow-y:auto;color:var(--text-2);"></pre>
       </div>
     </div>
-  <div class="clean-overlay" id="cleanConfirmModal">
-    <div class="clean-modal">
-      <div class="clean-icon">
-        <i data-lucide="alert-triangle" style="width:20px;height:20px;"></i>
-      </div>
-      <h3>This excel looks dirty</h3>
-      <p id="cleanModalDetail">Checking...</p>
-      <div class="clean-actions">
-        <button class="btn btn-secondary" id="cleanModalCancel" type="button">Cancel</button>
-        <button class="btn btn-primary" id="cleanModalConfirm" type="button">Yes, clean it</button>
-      </div>
-    </div>
-  </div>
+
   </div><!-- /container -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="charts.js"></script>
-  <script src="monitoring-clean.js"></script>
   <script>lucide.createIcons();</script>
 </body>
 </html>

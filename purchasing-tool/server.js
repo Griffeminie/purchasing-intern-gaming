@@ -1,11 +1,19 @@
-const express = require("express");
-const multer  = require("multer");
-const xlsx    = require("xlsx");
-const path    = require("path");
-const fs      = require("fs");
-const os      = require("os");
-const { spawn } = require("child_process"); 
-const { execFile } = require("child_process");
+/**
+ * server.js — Purchasing Tool backend
+ * Added: PO file upload, serve, delete routes
+ */
+
+const express    = require("express");
+const multer     = require("multer");
+const xlsx       = require("xlsx");
+const path       = require("path");
+const fs         = require("fs");
+const os         = require("os");
+
+const {
+  insertRow, updateRow, updateRowFile, deleteRow,
+  getByMonth, getMonths, findByPoNumber, buildDashboard, db,
+} = require("./db");
 
 const app  = express();
 const PORT = 3000;
@@ -13,7 +21,35 @@ const PORT = 3000;
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "20mb" }));
 
-const storage = multer.diskStorage({
+// ── PO PDF upload storage ─────────────────────────────────────────────────────
+const poFilesDir = path.join(__dirname, "data", "po_files");
+fs.mkdirSync(poFilesDir, { recursive: true });
+
+const poStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, poFilesDir),
+  filename: (req, file, cb) => {
+    // Keep original name but prefix with rowId for uniqueness
+    const rowId = req.params.id || "unknown";
+    const ext   = path.extname(file.originalname) || ".pdf";
+    const base  = path.basename(file.originalname, ext)
+                      .replace(/[^a-zA-Z0-9._-]/g, "_")
+                      .substring(0, 80);
+    cb(null, `PO_${rowId}_${base}${ext}`);
+  },
+});
+const poUpload = multer({
+  storage: poStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype === "application/pdf" ||
+               file.originalname.toLowerCase().endsWith(".pdf");
+    if (!ok) return cb(new Error("Only PDF files are allowed"));
+    cb(null, true);
+  },
+});
+
+// ── Scan image upload storage ─────────────────────────────────────────────────
+const scanStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(__dirname, "data", "scans");
     fs.mkdirSync(dir, { recursive: true });
@@ -21,519 +57,448 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => { cb(null, `scan_${Date.now()}.png`); },
 });
-const upload = multer({ storage });
+const upload = multer({ storage: scanStorage });
 
-const EXCEL_PATH = path.join(__dirname, "data", "monitoring.xlsx");
+// ── Excel headers for export ──────────────────────────────────────────────────
+const HEADERS = [
+  "PR DATE", "PR DATE RECEIVED", "PR NO.", "REQUESTING DEPT.",
+  "PO DATE", "PO NUMBER", "END USER/S", "SUPPLIER'S NAME",
+  "ITEM CODE", "ITEM DESCRIPTION", "SPECIFICATIONS", "QTY", "UoM",
+  "UNIT PRICE", "AMOUNT", "TOTAL AMOUNT", "PAYMENT TERMS",
+  "PR REQUIRED DATE", "DATE DELIVERED", "REMARKS",
+  "PURCHASE ORDER STATUS", "ITEMS/SERVICES", "ORIGINAL PRICE",
+  "TOTAL COST SAVINGS",
+];
 
-// ── Months we look for as monitoring sheets ───────────────────────────────────
-// Handles: "MAY2026", "May 2026", "JANUARY 2026", "jan", etc.
-const MONTH_PATTERNS = [
-  "JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
-  "JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER",
-  "JAN","FEB","MAR","APR","JUN",
+const MONTH_ORDER = [
+  "JAN","FEB","MAR","APR","MAY","JUN",
   "JUL","AUG","SEP","OCT","NOV","DEC",
 ];
 
-function isMonthSheet(name) {
-  const u = name.toUpperCase().replace(/\s/g, "");
-  return MONTH_PATTERNS.some(m => u.includes(m));
-}
-
-// ── Read workbook ─────────────────────────────────────────────────────────────
-function getWorkbook() {
-  if (!fs.existsSync(EXCEL_PATH)) createBlankWorkbook();
-  return xlsx.readFile(EXCEL_PATH);
-}
-
-function createBlankWorkbook() {
-  const wb = xlsx.utils.book_new();
-  const headers = [
-    "PR DATE","PR DATE RECEIVED","PR NO.","REQUESTING DEPT.",
-    "PO DATE","PO NUMBER","END USER/S","SUPPLIER'S NAME",
-    "ITEM CODE","ITEM DESCRIPTION","SPECIFICATIONS","QTY","UoM",
-    "UNIT PRICE","AMOUNT","TOTAL AMOUNT","PAYMENT TERMS","PR REQUIRED DATE",
-    "DATE DELIVERED","REMARKS","PURCHASE ORDER STATUS",
-    "ITEMS/SERVICES","ORIGINAL PRICE","TOTAL COST SAVINGS"
+function rowsToSheet(rows) {
+  const data = [
+    HEADERS,
+    ...rows.map(r => HEADERS.map(h => r[h] ?? "")),
   ];
-  ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"].forEach(m => {
-    xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([headers]), m);
-  });
-  xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([
-    ["Month","No. of PRs","Processed PO (Served)","Processed PR (For PO)",
-     "Processed PO (Waiting for Delivery)","Cancelled PO","Total PO Created","Remarks"]
-  ]), "Summary");
-  xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([
-    ["SUPPLIER'S NAME","TOTAL AMOUNT","ORIGINAL PRICE","TOTAL COST SAVINGS"]
-  ]), "Total cost savings");
-  xlsx.writeFile(wb, EXCEL_PATH);
+  return xlsx.utils.aoa_to_sheet(data);
 }
 
-// ── Parse a monitoring sheet into clean data rows ─────────────────────────────
-// The actual format has:
-//   rows 1-4: title/summary block (skip)
-//   row 5: column headers
-//   row 6+: data (with merged cells spanning multiple item rows)
-function parseMonthSheet(ws) {
-  const ref = ws["!ref"];
-  if (!ref) return [];
-
-  const raw = xlsx.utils.sheet_to_json(ws, {
-    header: 1,
-    defval: null,
-    raw: false,          // format dates as strings
-    dateNF: "yyyy-mm-dd",
-  });
-
-  if (raw.length < 5) return [];
-
-  // Find the header row — look for "PR DATE" or "PR NO." in any row
-  let headerRowIdx = -1;
-  for (let i = 0; i < Math.min(raw.length, 10); i++) {
-    const row = raw[i];
-    if (row && row.some(c => c && String(c).toUpperCase().includes("PR DATE"))) {
-      headerRowIdx = i;
-      break;
-    }
-  }
-  if (headerRowIdx === -1) return [];
-
-  const headers = raw[headerRowIdx].map(h => h ? String(h).trim().toUpperCase() : "");
-
-  // Column index lookup
-  const col = name => headers.findIndex(h => h === name.toUpperCase());
-
-  const rows = [];
-  for (let i = headerRowIdx + 1; i < raw.length; i++) {
-    const r = raw[i];
-    if (!r || r.every(v => v === null || v === "")) continue;
-
-    // Skip rows that are just formula errors
-    if (r.every(v => v === null || String(v).startsWith("#"))) continue;
-
-    const get = (name) => {
-      const idx = col(name);
-      if (idx === -1) return "";
-      const val = r[idx];
-      if (val === null || val === undefined) return "";
-      if (String(val).startsWith("#")) return ""; // formula error
-      return String(val).trim();
-    };
-
-    // Must have at least one of these to be a real data row
-    const hasContent = get("PO NUMBER") || get("PR NO.") || get("ITEM DESCRIPTION") || get("SUPPLIER'S NAME");
-    if (!hasContent) continue;
-
-    const parseNum = v => {
-      const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
-      return isNaN(n) ? 0 : n;
-    };
-
-    rows.push({
-      "PR DATE":               get("PR DATE"),
-      "PR DATE RECEIVED":      get("PR DATE RECEIVED"),
-      "PR NO.":                get("PR NO."),
-      "REQUESTING DEPT.":      get("REQUESTING DEPT."),
-      "PO DATE":               get("PO DATE"),
-      "PO NUMBER":             get("PO NUMBER"),
-      "END USER/S":            get("END USER/S"),
-      "SUPPLIER'S NAME":       get("SUPPLIER'S NAME"),
-      "ITEM CODE":             get("ITEM CODE"),
-      "ITEM DESCRIPTION":      get("ITEM DESCRIPTION"),
-      "SPECIFICATIONS":        get("SPECIFICATIONS"),
-      "QTY":                   get("QTY"),
-      "UoM":                   get("UOM") || get("UoM"),
-      "UNIT PRICE":            parseNum(get("UNIT PRICE")),
-      "AMOUNT":                parseNum(get("AMOUNT")),
-      "TOTAL AMOUNT":          parseNum(get("TOTAL AMOUNT")),
-      "PAYMENT TERMS":         get("PAYMENT TERMS"),
-      "PR REQUIRED DATE":      get("PR REQUIRED DATE"),
-      "DATE DELIVERED":        get("DATE DELIVERED"),
-      "REMARKS":               get("REMARKS"),
-      "PURCHASE ORDER STATUS": get("PURCHASE ORDER STATUS"),
-      "ITEMS/SERVICES":        get("ITEMS/SERVICES"),
-      "ORIGINAL PRICE":        parseNum(get("ORIGINAL PRICE")),
-      "TOTAL COST SAVINGS":    parseNum(get("TOTAL COST SAVINGS")),
-    });
-  }
-  return rows;
+function sendWorkbook(res, wb, filename) {
+  const buf = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+  res.setHeader("Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buf);
 }
 
-// ── Get all month sheets and their parsed rows ─────────────────────────────────
-function getAllMonthData() {
-  const wb = getWorkbook();
-  const result = {};
-  wb.SheetNames.forEach(name => {
-    if (isMonthSheet(name)) {
-      result[name] = parseMonthSheet(wb.Sheets[name]);
-    }
-  });
-  return result;
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// API ROUTES
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// ── API: sheet names ──────────────────────────────────────────────────────────
 app.get("/api/sheets", (req, res) => {
   try {
-    const wb = getWorkbook();
-    res.json({ sheets: wb.SheetNames });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json({ sheets: getMonths() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── API: get one sheet as JSON ────────────────────────────────────────────────
 app.get("/api/sheet/:name", (req, res) => {
   try {
-    const wb = getWorkbook();
-    const ws = wb.Sheets[req.params.name];
-    if (!ws) return res.status(404).json({ error: "Sheet not found" });
-    res.json({ data: parseMonthSheet(ws) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const month = req.params.name.toUpperCase().trim();
+    res.json({ data: getByMonth(month) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── API: look up PO number ────────────────────────────────────────────────────
 app.get("/api/po/:poNumber", (req, res) => {
   try {
-    const poNumber = req.params.poNumber.trim().toUpperCase();
-    const allData  = getAllMonthData();
-    for (const [sheet, rows] of Object.entries(allData)) {
-      const match = rows.find(r =>
-        String(r["PO NUMBER"] || "").trim().toUpperCase() === poNumber
-      );
-      if (match) return res.json({ found: true, sheet, row: match });
-    }
-    res.json({ found: false });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const row = findByPoNumber(req.params.poNumber.trim());
+    if (row) res.json({ found: true, sheet: row.month, row });
+    else     res.json({ found: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── API: add row to a sheet ───────────────────────────────────────────────────
 app.post("/api/sheet/:name/add", (req, res) => {
   try {
-    const wb = getWorkbook();
-    const name = req.params.name;
+    const raw   = req.params.name.toUpperCase();
+    const month = MONTH_ORDER.find(m => raw.includes(m)) || raw.substring(0, 3);
+    const id    = insertRow(req.body, month);
+    res.json({ success: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-    // Find the sheet — match by name fragment
-    const sheetName = wb.SheetNames.find(s =>
-      s.toUpperCase().includes(name.toUpperCase()) || s.toUpperCase() === name.toUpperCase()
-    );
-    if (!sheetName) return res.status(404).json({ error: "Sheet not found: " + name });
-
-    const ws   = wb.Sheets[sheetName];
-    const rows = parseMonthSheet(ws);
-    rows.push(req.body);
-
-    // Rebuild sheet from scratch preserving header structure
-    const headers = Object.keys(req.body);
-    const newData  = [headers, ...rows.map(r => headers.map(h => r[h] || ""))];
-    wb.Sheets[sheetName] = xlsx.utils.aoa_to_sheet(newData);
-
-    xlsx.writeFile(wb, EXCEL_PATH);
+app.put("/api/row/:id", (req, res) => {
+  try {
+    const id    = parseInt(req.params.id);
+    const month = (req.body.month || "").toUpperCase() || "JAN";
+    updateRow(id, req.body, month);
     res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Dashboard cache ────────────────────────────────────────────────────────────
-const CACHE_PATH = path.join(__dirname, "data", "dashboard-cache.json");
-
-function readCache() {
+app.delete("/api/row/:id", (req, res) => {
   try {
-    if (!fs.existsSync(CACHE_PATH)) return null;
-    return JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
-  } catch(e) { return null; }
-}
+    const id  = parseInt(req.params.id);
+    // Also delete the linked PDF if it exists
+    const row = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
+    if (row && row.po_file) {
+      const filePath = path.join(poFilesDir, row.po_file);
+      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch(e) {}
+    }
+    deleteRow(id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-function writeCache(data) {
+// ── PO FILE: Upload PDF and link to a row ─────────────────────────────────────
+// POST /api/row/:id/file  (multipart field name: "po_file")
+app.post("/api/row/:id/file", poUpload.single("po_file"), (req, res) => {
   try {
-    fs.writeFileSync(CACHE_PATH, JSON.stringify(data), "utf8");
-  } catch(e) { console.warn("Could not write dashboard cache:", e.message); }
-}
+    const id = parseInt(req.params.id);
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
+    // If this row already had a file, delete the old one
+    const existing = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
+    if (existing && existing.po_file) {
+      const old = path.join(poFilesDir, existing.po_file);
+      try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch(e) {}
+    }
 
-// ── Monitoring cleanup (v2 - real upload flow) ─────────────────────────────────
-const UPLOAD_DIR = path.join(__dirname, "data", "uploads");
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const excelUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => cb(null, `pending_${Date.now()}.xlsx`),
-  }),
-  fileFilter: (req, file, cb) => {
-    const ok = file.originalname.toLowerCase().endsWith(".xlsx");
-    cb(ok ? null : new Error("Only .xlsx files are supported"), ok);
-  },
+    updateRowFile(id, req.file.filename);
+    console.log(`[PO File] Row ${id} → ${req.file.filename}`);
+    res.json({ success: true, filename: req.file.filename });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-const CLEAN_EXCEL_SCRIPT = path.join(__dirname, "clean_monitoring_excel.py");
-const MAX_SAVINGS_ROWS = 200;
+// ── PO FILE: View/download a PDF ──────────────────────────────────────────────
+// GET /api/row/:id/file
+app.get("/api/row/:id/file", (req, res) => {
+  try {
+    const id  = parseInt(req.params.id);
+    const row = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
+    if (!row || !row.po_file) return res.status(404).json({ error: "No file attached" });
 
-app.post("/api/monitoring/upload", excelUpload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const filePath = path.join(poFilesDir, row.po_file);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
 
-  const uploadedPath = req.file.path;
-  const fileId = req.file.filename;
-  const startedAt = Date.now();
-  console.log(`[Monitoring Upload] Received: ${req.file.originalname} (${(req.file.size / 1024).toFixed(0)}KB)`);
-
-  const proc = spawn("python", [CLEAN_EXCEL_SCRIPT, "inspect", uploadedPath]);
-  let stdout = "";
-
-  proc.stdout.on("data", (chunk) => { stdout += chunk; });
-  proc.stderr.on("data", (chunk) => {
-    chunk.toString().split("\n").filter(Boolean).forEach(line => console.log(`[python] ${line}`));
-  });
-
-  proc.on("close", (code) => {
-    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
-    if (code !== 0) {
-      console.error(`[Monitoring Upload] Inspection failed after ${elapsed}s (exit code ${code})`);
-      fs.unlink(uploadedPath, () => {});
-      return res.status(500).json({ error: "Inspection failed", detail: `python exited with code ${code}` });
-    }
-    try {
-      const stats = JSON.parse(stdout.trim());
-      console.log(`[Monitoring Upload] Inspection ok in ${elapsed}s:`, stats.dirty ? "DIRTY" : "clean", stats.totalMergedCells, "merged cells");
-      res.json({ fileId, ...stats });
-    } catch (parseErr) {
-      console.error("[Monitoring Upload] Could not parse python output. Raw stdout:", stdout);
-      fs.unlink(uploadedPath, () => {});
-      res.status(500).json({ error: "Could not parse inspection output", raw: stdout });
-    }
-  });
-
-  proc.on("error", (err) => {
-    console.error("[Monitoring Upload] Failed to spawn python:", err.message);
-    fs.unlink(uploadedPath, () => {});
-    res.status(500).json({ error: "Failed to start python", detail: err.message });
-  });
+    // Send inline so the browser can display it in an iframe
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${row.po_file}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/monitoring/clean", (req, res) => {
-  const { fileId } = req.body;
-  if (!fileId) return res.status(400).json({ error: "Missing fileId" });
-
-  const pendingPath = path.join(UPLOAD_DIR, fileId);
-  if (!fs.existsSync(pendingPath)) {
-    return res.status(404).json({ error: "Uploaded file not found — please re-upload" });
-  }
-
-  const startedAt = Date.now();
-  console.log(`[Monitoring Clean] Cleaning: ${pendingPath} -> ${EXCEL_PATH}`);
-
-  const proc = spawn("python", [CLEAN_EXCEL_SCRIPT, "clean", pendingPath, EXCEL_PATH]);
-  let stdout = "";
-
-  proc.stdout.on("data", (chunk) => { stdout += chunk; });
-  proc.stderr.on("data", (chunk) => {
-    chunk.toString().split("\n").filter(Boolean).forEach(line => console.log(`[python] ${line}`));
-  });
-
-  proc.on("close", (code) => {
-    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
-    fs.unlink(pendingPath, () => {});
-
-    if (code !== 0) {
-      console.error(`[Monitoring Clean] Cleanup script failed after ${elapsed}s (exit code ${code})`);
-      return res.status(500).json({ error: "Cleanup script failed", detail: `python exited with code ${code}` });
+// ── PO FILE: Remove a PDF from a row ─────────────────────────────────────────
+// DELETE /api/row/:id/file
+app.delete("/api/row/:id/file", (req, res) => {
+  try {
+    const id  = parseInt(req.params.id);
+    const row = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
+    if (row && row.po_file) {
+      const filePath = path.join(poFilesDir, row.po_file);
+      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch(e) {}
     }
-
-    let cleanSummary;
-    try {
-      cleanSummary = JSON.parse(stdout.trim());
-      console.log(`[Monitoring Clean] Excel cleaned in ${elapsed}s:`, cleanSummary.sheets.map(s => `${s.name}(${s.finalRowCount})`).join(", "));
-    } catch (parseErr) {
-      console.error("[Monitoring Clean] Could not parse python output. Raw stdout:", stdout);
-      return res.status(500).json({ error: "Could not parse cleanup output", raw: stdout });
-    }
-
-    try {
-      const data = buildDashboardData();
-      if (data.savingsData.length > MAX_SAVINGS_ROWS) {
-        data.savingsData = data.savingsData.slice(0, MAX_SAVINGS_ROWS);
-      }
-      writeCache(data);
-      console.log(`[Monitoring Clean] Dashboard rebuilt: ${data.rawRows} rows, ${data.savingsData.length} savings rows`);
-
-      res.json({
-        ok: true,
-        excelCleanSummary: cleanSummary,
-        rawRows: data.rawRows,
-        savingsRowCount: data.savingsData.length,
-      });
-    } catch (rebuildErr) {
-      console.error("[Monitoring Clean] Dashboard rebuild failed:", rebuildErr);
-      res.status(500).json({ error: "Excel cleaned but dashboard rebuild failed", detail: rebuildErr.message });
-    }
-  });
-
-  proc.on("error", (err) => {
-    console.error("[Monitoring Clean] Failed to spawn python:", err.message);
-    fs.unlink(pendingPath, () => {});
-    res.status(500).json({ error: "Failed to start python", detail: err.message });
-  });
+    updateRowFile(id, "");
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-function buildDashboardData() {
-  const allData = getAllMonthData();
-
-  const MONTH_ORDER = [
-    "JAN","FEB","MAR","APR","MAY","JUN",
-    "JUL","AUG","SEP","OCT","NOV","DEC"
-  ];
-
-  function toMonthKey(name) {
-    const u = name.toUpperCase().replace(/\s/g, "");
-    const fullNames = {
-      "JANUARY":"JAN","FEBRUARY":"FEB","MARCH":"MAR","APRIL":"APR",
-      "JUNE":"JUN","JULY":"JUL","AUGUST":"AUG","SEPTEMBER":"SEP",
-      "OCTOBER":"OCT","NOVEMBER":"NOV","DECEMBER":"DEC",
-    };
-    for (const [full, short] of Object.entries(fullNames)) {
-      if (u.includes(full)) return short;
-    }
-    for (const m of MONTH_ORDER) {
-      if (u.includes(m)) return m;
-    }
-    return name.substring(0, 3).toUpperCase();
-  }
-
-  const monthMap    = {};
-  const supplierMap = {};
-  const deptMap     = {};
-  const statusMap   = {};
-  const allRows     = [];
-
-  MONTH_ORDER.forEach(m => monthMap[m] = 0);
-
-  for (const [sheetName, rows] of Object.entries(allData)) {
-    const monthKey = toMonthKey(sheetName);
-    rows.forEach(r => {
-      const amt        = r["TOTAL AMOUNT"] > 0 ? r["TOTAL AMOUNT"] : (r["AMOUNT"] || 0);
-      const isHeaderRow = !!(r["PO NUMBER"] || r["PR NO."]);
-      const spendAmt   = isHeaderRow ? amt : 0;
-
-      if (monthMap[monthKey] !== undefined) monthMap[monthKey] += spendAmt;
-
-      const supplier = r["SUPPLIER'S NAME"] || "";
-      if (supplier && isHeaderRow) supplierMap[supplier] = (supplierMap[supplier] || 0) + spendAmt;
-
-      const dept = r["REQUESTING DEPT."] || "";
-      if (dept && isHeaderRow) deptMap[dept] = (deptMap[dept] || 0) + spendAmt;
-
-      const status = r["PURCHASE ORDER STATUS"] || "Unknown";
-      if (status) statusMap[status] = (statusMap[status] || 0) + 1;
-
-      allRows.push({ ...r, _sheet: sheetName });
-    });
-  }
-
-  const monthlySpending = MONTH_ORDER.map(m => ({ month: m, total: monthMap[m] }));
-
-  // Cost savings sheet
-  const wb = getWorkbook();
-  let savingsData = [];
-  const savingsSheet = wb.SheetNames.find(s =>
-    s.toLowerCase().includes("cost") || s.toLowerCase().includes("saving")
-  );
-  if (savingsSheet) {
-    const raw = xlsx.utils.sheet_to_json(wb.Sheets[savingsSheet], { header:1, defval:null, raw:false });
-    const hIdx = raw.findIndex(r => r && r.some(c => c && String(c).toUpperCase().includes("SUPPLIER")));
-    if (hIdx >= 0) {
-      const heads = raw[hIdx].map(h => h ? String(h).trim().toUpperCase() : "");
-      for (let i = hIdx + 1; i < raw.length; i++) {
-        const r = raw[i];
-        if (!r || !r[0] || String(r[0]).startsWith("#")) continue;
-        const get = name => {
-          const idx = heads.indexOf(name.toUpperCase());
-          const v = idx >= 0 ? r[idx] : null;
-          if (v === null || String(v).startsWith("#")) return 0;
-          return parseFloat(String(v).replace(/[^0-9.-]/g, "")) || 0;
-        };
-        savingsData.push({
-          "SUPPLIER'S NAME":    String(r[0] || ""),
-          "TOTAL AMOUNT":       get("TOTAL AMOUNT"),
-          "ORIGINAL PRICE":     get("ORIGINAL PRICE"),
-          "TOTAL COST SAVINGS": get("TOTAL COST SAVINGS"),
-        });
-      }
-    }
-  }
-  if (!savingsData.length) {
-    const sMap = {};
-    allRows.forEach(r => {
-      const s = r["SUPPLIER'S NAME"] || "Unknown";
-      if (!sMap[s]) sMap[s] = { total:0, original:0 };
-      sMap[s].total    += r["TOTAL AMOUNT"] || r["AMOUNT"] || 0;
-      sMap[s].original += r["ORIGINAL PRICE"] || 0;
-    });
-    savingsData = Object.entries(sMap).map(([name, v]) => ({
-      "SUPPLIER'S NAME":    name,
-      "TOTAL AMOUNT":       v.total,
-      "ORIGINAL PRICE":     v.original,
-      "TOTAL COST SAVINGS": Math.max(0, v.original - v.total),
-    }));
-  }
-
-  const normStatus = { Served:0, "For Delivery":0, Pending:0, Cancelled:0 };
-  Object.entries(statusMap).forEach(([k, v]) => {
-    const u = k.toLowerCase();
-    if (u.includes("served") || u.includes("complete")) normStatus["Served"] += v;
-    else if (u.includes("deliver")) normStatus["For Delivery"] += v;
-    else if (u.includes("cancel"))  normStatus["Cancelled"] += v;
-    else normStatus["Pending"] += v;
-  });
-
-  return {
-    monthlySpending,
-    supplierBreakdown: Object.entries(supplierMap)
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 10),
-    deptSpending: Object.entries(deptMap)
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total),
-    statusCounts: normStatus,
-    savingsData,
-    rawRows: allRows.length,
-    sheetsDetected: Object.keys(allData),
-    cachedAt: Date.now(),
-  };
-}
-
-// ── API: dashboard — serves cache instantly, rebuilds on ?refresh=1 ───────────
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 app.get("/api/dashboard", (req, res) => {
   try {
-    const forceRefresh = req.query.refresh === "1";
-
-    if (!forceRefresh) {
-      const cached = readCache();
-      if (cached) {
-        console.log(`[Dashboard] Serving cache (${cached.rawRows} rows, saved ${new Date(cached.cachedAt).toLocaleTimeString()})`);
-        return res.json({ ...cached, fromCache: true });
-      }
-      console.log("[Dashboard] No cache found — building from Excel...");
-    } else {
-      console.log("[Dashboard] Force refresh — rebuilding from Excel...");
-    }
-
-    const data = buildDashboardData();
-    writeCache(data);
-    console.log(`[Dashboard] Built and cached (${data.rawRows} rows)`);
-    res.json({ ...data, fromCache: false });
-
-  } catch(e) {
+    res.json({ ...buildDashboard(), fromCache: false });
+  } catch (e) {
     console.error("Dashboard error:", e);
-    // Try to serve stale cache if build fails
-    const cached = readCache();
-    if (cached) {
-      console.warn("[Dashboard] Build failed, serving stale cache");
-      return res.json({ ...cached, fromCache: true, stale: true });
-    }
     res.status(500).json({ error: e.message });
   }
 });
 
-// ── API: upload scan image ────────────────────────────────────────────────────
+// ── Export: one month ─────────────────────────────────────────────────────────
+app.get("/api/export/month/:month", (req, res) => {
+  try {
+    const month = req.params.month.toUpperCase().trim();
+    const rows  = getByMonth(month);
+    if (!rows.length) return res.status(404).json({ error: `No data for ${month}` });
+
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, rowsToSheet(rows), month);
+    sendWorkbook(res, wb, `PO_Monitoring_${month}_${new Date().getFullYear()}.xlsx`);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Export: full year ─────────────────────────────────────────────────────────
+app.get("/api/export/year", (req, res) => {
+  try {
+    const wb = xlsx.utils.book_new();
+    let totalRows = 0;
+    for (const month of MONTH_ORDER) {
+      const rows = getByMonth(month);
+      if (rows.length) {
+        xlsx.utils.book_append_sheet(wb, rowsToSheet(rows), month);
+        totalRows += rows.length;
+      }
+    }
+    xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([
+      ["Month","No. of PRs","Processed PO (Served)","Processed PR (For PO)",
+       "Processed PO (Waiting for Delivery)","Cancelled PO",
+       "Total PO Created","Remarks"]
+    ]), "Summary");
+    if (wb.SheetNames.length === 1) return res.status(404).json({ error: "No data to export." });
+    sendWorkbook(res, wb, `PO_Monitoring_Full_${new Date().getFullYear()}.xlsx`);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Export: filtered ──────────────────────────────────────────────────────────
+app.get("/api/export/filtered", (req, res) => {
+  try {
+    const { month, supplier, dept, status } = req.query;
+    const conditions = [];
+    const params     = [];
+    if (month)    { conditions.push("UPPER(month) = UPPER(?)");         params.push(month); }
+    if (supplier) { conditions.push("supplier_name LIKE ?");            params.push(`%${supplier}%`); }
+    if (dept)     { conditions.push("requesting_dept LIKE ?");          params.push(`%${dept}%`); }
+    if (status)   { conditions.push("UPPER(po_status) LIKE UPPER(?)"); params.push(`%${status}%`); }
+
+    const where  = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows   = db.prepare(`SELECT * FROM purchase_orders ${where} ORDER BY id ASC`).all(...params);
+    if (!rows.length) return res.status(404).json({ error: "No rows match." });
+
+    const apiRows = rows.map(r => ({
+      "PR DATE": r.pr_date, "PR DATE RECEIVED": r.pr_date_received,
+      "PR NO.": r.pr_no, "REQUESTING DEPT.": r.requesting_dept,
+      "PO DATE": r.po_date, "PO NUMBER": r.po_number,
+      "END USER/S": r.end_user, "SUPPLIER'S NAME": r.supplier_name,
+      "ITEM CODE": r.item_code, "ITEM DESCRIPTION": r.item_description,
+      "SPECIFICATIONS": r.specifications, "QTY": r.qty, "UoM": r.uom,
+      "UNIT PRICE": r.unit_price, "AMOUNT": r.amount, "TOTAL AMOUNT": r.total_amount,
+      "PAYMENT TERMS": r.payment_terms, "PR REQUIRED DATE": r.pr_required_date,
+      "DATE DELIVERED": r.date_delivered, "REMARKS": r.remarks,
+      "PURCHASE ORDER STATUS": r.po_status, "ITEMS/SERVICES": r.items_services,
+      "ORIGINAL PRICE": r.original_price, "TOTAL COST SAVINGS": r.total_cost_savings,
+    }));
+
+    const wb = xlsx.utils.book_new();
+    const sheetName = [month,supplier,dept,status].filter(Boolean).join("_") || "Filtered";
+    xlsx.utils.book_append_sheet(wb, rowsToSheet(apiRows), sheetName.substring(0,31));
+    sendWorkbook(res, wb, `PO_Export_${sheetName}_${Date.now()}.xlsx`);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Scan image upload ─────────────────────────────────────────────────────────
 app.post("/api/upload-scan", upload.single("image"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   res.json({ success: true, path: req.file.path });
+});
+
+// ── Canvass export (Python) ───────────────────────────────────────────────────
+app.post("/api/canvass/export", async (req, res) => {
+  const { execFile } = require("child_process");
+  const tmpJson = path.join(os.tmpdir(), `canvass_${Date.now()}.json`);
+  const outFile = path.join(__dirname, "data", `Canvass_${Date.now()}.xlsx`);
+  try {
+    fs.writeFileSync(tmpJson, JSON.stringify(req.body));
+    await new Promise((resolve, reject) => {
+      execFile("python3", [
+        path.join(__dirname, "canvass_fill.py"),
+        tmpJson,
+        path.join(__dirname, "data", "TEMP.xlsx"),
+        outFile,
+      ], (err, stdout, stderr) => {
+        if (err) { return reject(new Error(stderr || err.message)); }
+        resolve();
+      });
+    });
+    fs.unlinkSync(tmpJson);
+    res.download(outFile, `Canvass_${Date.now()}.xlsx`, err => {
+      try { fs.unlinkSync(outFile); } catch(e) {}
+    });
+  } catch (e) {
+    try { fs.unlinkSync(tmpJson); } catch(_) {}
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PO FOLDER AUTO-SCAN
+// POST /api/po-files/scan
+// Body: { folderPath: "C:\\Users\\ITSU\\Desktop\\PO Files" }
+//
+// Logic:
+//   1. Read all .pdf files in the given folder
+//   2. Extract PO number from filename using pattern: PO#[NUMBER]
+//   3. Look up that PO number in the database
+//   4. If found: copy the file to data/po_files/ and link it to the row
+//   5. Return a report of matched / unmatched files
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post("/api/po-files/scan", async (req, res) => {
+  const { folderPath } = req.body;
+  if (!folderPath) return res.status(400).json({ error: "folderPath is required" });
+
+  // Normalise path — handle both forward and back slashes
+  const folder = path.resolve(folderPath.trim());
+
+  if (!fs.existsSync(folder)) {
+    return res.status(404).json({ error: `Folder not found: ${folder}` });
+  }
+
+  let files;
+  try {
+    files = fs.readdirSync(folder).filter(f => f.toLowerCase().endsWith(".pdf"));
+  } catch (e) {
+    return res.status(500).json({ error: `Cannot read folder: ${e.message}` });
+  }
+
+  if (!files.length) {
+    return res.json({ matched: [], unmatched: [], total: 0, message: "No PDF files found in that folder." });
+  }
+
+  // Extract PO number from filename
+  // Handles: PO#400085166, PO# 400085166, PO #400085166, PO-400085166
+  function extractPoNumber(filename) {
+    // Try PO# pattern first (matches your files: "CCI - PO#400085166 PRICOM")
+    let m = filename.match(/PO[#\-\s#]+(\d{6,})/i);
+    if (m) return m[1];
+    // Fallback: any sequence of 6+ digits after "PO"
+    m = filename.match(/PO[^0-9]*(\d{6,})/i);
+    if (m) return m[1];
+    return null;
+  }
+
+  const matched   = [];
+  const unmatched = [];
+
+  for (const filename of files) {
+    const poNum = extractPoNumber(filename);
+
+    if (!poNum) {
+      unmatched.push({ filename, reason: "Could not extract PO number from filename" });
+      continue;
+    }
+
+    // Look up in DB — try exact match first, then partial
+    let row = db.prepare(
+      "SELECT id, po_number, supplier_name, po_file FROM purchase_orders WHERE TRIM(po_number) = ?"
+    ).get(poNum);
+
+    // If not found, try stripping leading zeros or matching the tail
+    if (!row) {
+      row = db.prepare(
+        "SELECT id, po_number, supplier_name, po_file FROM purchase_orders WHERE TRIM(po_number) LIKE ?"
+      ).get(`%${poNum}%`);
+    }
+
+    if (!row) {
+      unmatched.push({ filename, poExtracted: poNum, reason: "No matching PO number found in database" });
+      continue;
+    }
+
+    // Copy the file to our managed po_files folder (don't delete the original)
+    const srcPath  = path.join(folder, filename);
+    const destName = `PO_${row.id}_${filename.replace(/[^a-zA-Z0-9._\-# ]/g, "_")}`;
+    const destPath = path.join(poFilesDir, destName);
+
+    try {
+      fs.copyFileSync(srcPath, destPath);
+    } catch (e) {
+      unmatched.push({ filename, poExtracted: poNum, reason: `File copy failed: ${e.message}` });
+      continue;
+    }
+
+    // If row already had a different file, delete the old one
+    if (row.po_file && row.po_file !== destName) {
+      const old = path.join(poFilesDir, row.po_file);
+      try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch(e) {}
+    }
+
+    // Link to DB row
+    db.prepare("UPDATE purchase_orders SET po_file = ? WHERE id = ?").run(destName, row.id);
+
+    matched.push({
+      filename,
+      poExtracted: poNum,
+      dbPoNumber:  row.po_number,
+      supplier:    row.supplier_name,
+      rowId:       row.id,
+    });
+  }
+
+  console.log(`[Scan] Folder: ${folder} | PDFs: ${files.length} | Matched: ${matched.length} | Unmatched: ${unmatched.length}`);
+
+  res.json({
+    total:     files.length,
+    matched:   matched.length,
+    unmatched: unmatched.length,
+    details:   { matched, unmatched },
+    folderPath: folder,
+  });
+});
+
+
+// ── Scanner: extract PO PDFs via Python ──────────────────────────────────────
+// POST /api/scanner/extract
+// Accepts multipart upload of one or more PDFs
+const scanPdfStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, "data", "scanner_uploads");
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `scan_${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g,"_")}`);
+  },
+});
+const scanUpload = multer({
+  storage: scanPdfStorage,
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf");
+    cb(null, ok);
+  },
+});
+
+app.post("/api/scanner/extract", scanUpload.array("pdfs", 20), async (req, res) => {
+  if (!req.files || !req.files.length)
+    return res.status(400).json({ error: "No PDF files uploaded" });
+
+  const { execFile } = require("child_process");
+  const filePaths = req.files.map(f => f.path);
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const py = execFile(
+        "python3",
+        [path.join(__dirname, "scanner_api.py")],
+        { maxBuffer: 10 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) return reject(new Error(stderr || err.message));
+          try { resolve(JSON.parse(stdout)); }
+          catch(e) { reject(new Error("Invalid JSON from scanner_api.py: " + stdout.substring(0, 200))); }
+        }
+      );
+      py.stdin.write(JSON.stringify(filePaths));
+      py.stdin.end();
+    });
+
+    // Clean up temp uploads after extraction
+    filePaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
+
+    res.json(result);
+  } catch(e) {
+    filePaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/scanner/save — save confirmed rows into SQLite
+app.post("/api/scanner/save", (req, res) => {
+  try {
+    const { rows, month } = req.body;
+    if (!rows || !rows.length) return res.status(400).json({ error: "No rows to save" });
+    const targetMonth = (month || new Date().toLocaleString("en-US",{month:"short"}).toUpperCase());
+    let saved = 0;
+    for (const row of rows) {
+      insertRow(row, targetMonth);
+      saved++;
+    }
+    res.json({ success: true, saved });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
@@ -543,60 +508,10 @@ app.listen(PORT, "0.0.0.0", () => {
   Object.values(ifaces).forEach(iface =>
     iface.forEach(d => { if (d.family === "IPv4" && !d.internal) ip = d.address; })
   );
-  console.log(`\n✅ Purchasing Tool running!`);
-  console.log(`   Local:   http://localhost:${PORT}`);
-  console.log(`   Network: http://${ip}:${PORT}  ← use this on phones\n`);
-
-  const existing = readCache();
-    if (existing) {
-      const mins = Math.floor((Date.now() - (existing.cachedAt || 0)) / 60000);
-      console.log(`\n[Dashboard] Cache found (${existing.rawRows} rows, ${mins}m old) — ready.`);
-      console.log(`[Dashboard] Hit Refresh on the dashboard to rebuild from Excel.\n`);
-    } else {
-      console.log(`\n[Dashboard] No cache yet — open the dashboard and hit Refresh to build it.\n`);
-    }
-});
-
-// ── API: Export canvass sheet ─────────────────────────────────────────────────
-// Copies TEMP.xlsx, fills in the data, saves as a new file with timestamp,
-// and streams it back to the browser as a download.
-app.post("/api/canvass/export", async (req, res) => {
-  const xl   = require("xlsx");
-  const xlsxPkg = require("xlsx");
-  const openpyxl = null; // not available — use xlsx only
-
-  // We'll use a Python script to do the openpyxl work since it handles
-  // merged cells and row insertion far better than the xlsx npm package
-  const { execFile } = require("child_process");
-  const os2 = require("os");
-  const { v4: uuidv4 } = require("crypto");
-
-  const tmpJson = path.join(os2.tmpdir(), `canvass_${Date.now()}.json`);
-  const outFile = path.join(__dirname, "data", `Canvass_${Date.now()}.xlsx`);
-
-  try {
-    fs.writeFileSync(tmpJson, JSON.stringify(req.body));
-
-    await new Promise((resolve, reject) => {
-      execFile("python3", [
-        path.join(__dirname, "canvass_fill.py"),
-        tmpJson,
-        path.join(__dirname, "data", "TEMP.xlsx"),
-        outFile,
-      ], (err, stdout, stderr) => {
-        if (err) { console.error("Python error:", stderr); return reject(new Error(stderr || err.message)); }
-        resolve();
-      });
-    });
-
-    fs.unlinkSync(tmpJson);
-
-    res.download(outFile, `Canvass_${Date.now()}.xlsx`, err => {
-      // Clean up after download
-      try { fs.unlinkSync(outFile); } catch(e) {}
-    });
-  } catch(e) {
-    try { fs.unlinkSync(tmpJson); } catch(_) {}
-    res.status(500).json({ error: e.message });
-  }
+  const count = db.prepare("SELECT COUNT(*) AS cnt FROM purchase_orders").get();
+  console.log(`\n✅  Purchasing Tool running!`);
+  console.log(`    Local:   http://localhost:${PORT}`);
+  console.log(`    Network: http://${ip}:${PORT}\n`);
+  console.log(`📦  Database: ${count.cnt} rows in SQLite`);
+  console.log(`📂  PO Files: ${poFilesDir}\n`);
 });
