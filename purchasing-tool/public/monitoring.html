@@ -251,6 +251,34 @@
       border-bottom: 2px solid var(--border);
       padding: 8px 12px !important;
     }
+
+    .confirm-remove-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2000; opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .confirm-remove-overlay.visible { opacity: 1; pointer-events: auto; }
+
+    .confirm-remove-modal {
+      background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px; max-width: 360px; width: 90%; text-align: center;
+      transform: scale(0.9) translateY(10px); opacity: 0;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .confirm-remove-overlay.visible .confirm-remove-modal { transform: scale(1) translateY(0); opacity: 1; }
+
+    .confirm-remove-icon {
+      width: 44px; height: 44px; border-radius: 50%; background: #2a1800; color: #f59e0b;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+    }
+    body.light .confirm-remove-icon { background: #fef3d0; color: #b45309; }
+    .confirm-remove-modal h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .confirm-remove-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
+    .confirm-remove-actions  { display: flex; gap: 10px; justify-content: center; }
+    .confirm-remove-actions .btn { flex: 1; justify-content: center; }
+
   </style>
 </head>
 <body>
@@ -426,6 +454,21 @@
     <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
       <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
       <button class="btn btn-danger" id="confirm-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Remove PO File Modal -->
+<div class="confirm-remove-overlay" id="confirm-remove-file-overlay">
+  <div class="confirm-remove-modal">
+    <div class="confirm-remove-icon">
+      <i data-lucide="alert-triangle" style="width:20px;height:20px;"></i>
+    </div>
+    <h3>Remove PO file?</h3>
+    <p>This will permanently delete the attached PO file from this entry. This cannot be undone.</p>
+    <div class="confirm-remove-actions">
+      <button class="btn btn-secondary" id="confirm-remove-file-cancel">Keep File</button>
+      <button class="btn btn-danger" id="confirm-remove-file-confirm">Remove File</button>
     </div>
   </div>
 </div>
@@ -957,15 +1000,34 @@ function closePdfPanel() {
   pdfViewingId = null;
 }
 
-async function removeFile(rowId) {
-  if (!confirm("Remove the attached PO file from this row?")) return;
+let removeFileTargetId = null;
+
+function removeFile(rowId) {
+  removeFileTargetId = rowId;
+  document.getElementById("confirm-remove-file-overlay").classList.add("visible");
+}
+
+function closeRemoveFileModal() {
+  document.getElementById("confirm-remove-file-overlay").classList.remove("visible");
+  removeFileTargetId = null;
+}
+
+document.getElementById("confirm-remove-file-cancel").addEventListener("click", closeRemoveFileModal);
+document.getElementById("confirm-remove-file-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "confirm-remove-file-overlay") closeRemoveFileModal();
+});
+
+document.getElementById("confirm-remove-file-confirm").addEventListener("click", async () => {
+  if (!removeFileTargetId) return;
+  const rowId = removeFileTargetId;
+  closeRemoveFileModal();
   try {
     const res = await fetch(`/api/row/${rowId}/file`, { method: "DELETE" });
     const d   = await res.json();
     if (d.success) { toast("PO file removed"); closePdfPanel(); await loadMonth(); }
     else toast(d.error || "Failed", "error");
   } catch(e) { toast("Error", "error"); }
-}
+});
 
 document.getElementById("pdf-panel-close").addEventListener("click", closePdfPanel);
 document.getElementById("pdf-overlay").addEventListener("click", closePdfPanel);
