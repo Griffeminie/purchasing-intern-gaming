@@ -22,3 +22,7 @@ uploads/
 *.jpeg
 *.png
 *.gif
+
+# Ignore everything in data/ — it's local/generated content, not source
+data/*
+!data/.gitkeep
