@@ -10,6 +10,20 @@ const path       = require("path");
 const fs         = require("fs");
 const os         = require("os");
 
+// ── Cross-platform python command resolver ────────────────────────────────────
+const { execFileSync } = require("child_process");
+function resolvePythonCmd() {
+  for (const cmd of ["python3", "python"]) {
+    try {
+      execFileSync(cmd, ["--version"], { stdio: "ignore" });
+      return cmd;
+    } catch (e) { /* try next */ }
+  }
+  throw new Error("No Python interpreter found (tried python3, python)");
+}
+const PYTHON_CMD = resolvePythonCmd();
+console.log(`[Python] Using command: ${PYTHON_CMD}`);
+
 const {
   insertRow, updateRow, updateRowFile, deleteRow,
   getByMonth, getMonths, findByPoNumber, buildDashboard, db,
@@ -296,7 +310,7 @@ app.post("/api/canvass/export", async (req, res) => {
   try {
     fs.writeFileSync(tmpJson, JSON.stringify(req.body));
     await new Promise((resolve, reject) => {
-      execFile("python3", [
+      execFile(PYTHON_CMD, [
         path.join(__dirname, "canvass_fill.py"),
         tmpJson,
         path.join(__dirname, "data", "TEMP.xlsx"),
@@ -463,7 +477,7 @@ app.post("/api/scanner/extract", scanUpload.array("pdfs", 20), async (req, res) 
   try {
     const result = await new Promise((resolve, reject) => {
       const py = execFile(
-        "python3",
+        PYTHON_CMD,
         [path.join(__dirname, "scanner_api.py")],
         { maxBuffer: 10 * 1024 * 1024 },
         (err, stdout, stderr) => {
