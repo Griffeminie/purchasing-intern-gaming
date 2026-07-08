@@ -77,6 +77,7 @@
     tbody tr { border-bottom: 1px solid var(--border-2); transition: background 0.1s; }
     tbody tr:last-child { border-bottom: none; }
     tbody tr:hover { background: var(--bg-3); }
+    tbody tr.table-bottom-spacer:hover { background: transparent; }
     tbody td { padding: 8px 12px; color: var(--text); vertical-align: middle; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 
     /* PO File cell */
@@ -236,9 +237,13 @@
     .empty-state p { font-size: 13px; }
 
     .pagination-bar {
-      display: flex; align-items: center; justify-content: center; gap: 14px;
-      padding: 12px 20px; font-size: 12px; color: var(--text-2); font-family: var(--font-mono);
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: none; align-items: center; justify-content: center; gap: 14px;
+      padding: 10px 20px; font-size: 12px; color: var(--text-2); font-family: var(--font-mono);
+      background: var(--bg-2); border: 1px solid var(--border); border-radius: 999px;
+      box-shadow: var(--shadow-lg); z-index: 150;
     }
+    .pagination-bar.visible { display: flex; }
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-family: var(--font-sans); font-size: 13px; font-weight: 500; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; text-decoration: none; white-space: nowrap; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-primary   { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -264,7 +269,7 @@
     .item-row td { padding:6px 12px !important; }
     .item-row td:nth-child(3) { padding-left:24px !important; }
     .group-spacer td { padding:0 !important; }
-    .item-total-row td { 
+    .table-bottom-spacer td { padding:0 !important; height: 70px; border: none !important; background: transparent !important; }    .item-total-row td { 
       background: var(--bg-3) !important; 
       border-top: 1px solid var(--border);
       border-bottom: 2px solid var(--border);
@@ -370,7 +375,7 @@
     <tbody id="table-body"></tbody>
   </table>
 </div>
-<div class="pagination-bar" id="pagination-bar" style="display:none;"></div>
+<div class="pagination-bar" id="pagination-bar"></div>
 </div><!-- /.page-body -->
 
 <!-- Hidden file input for PDF upload -->
@@ -384,7 +389,7 @@
     <button class="modal-close" id="col-panel-close">&times;</button>
   </div>
   <div class="col-panel-body" id="col-panel-body"></div>
-  <div class="col-panel-footer">
+  <div class="col-panel-footer">  
     <button class="btn btn-secondary btn-sm" id="col-show-all">Show All</button>
     <button class="btn btn-secondary btn-sm" id="col-hide-all">Hide All</button>
   </div>
@@ -712,7 +717,7 @@ if (!filteredRows.length) {
         <h3>No entries for ${currentMonth === "ALL" ? "the year" : currentMonth}</h3>
         <p>Click <strong>Add Entry</strong> to start, or adjust your search.</p>
       </div></td></tr>`;
-    document.getElementById("pagination-bar").style.display = "none";
+    document.getElementById("pagination-bar").classList.remove("visible");
     lucide.createIcons(); return;
   }
 
@@ -912,8 +917,13 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
       // (inject via dataset after render)
     }
 
-    // Spacer between groups
+// Spacer between groups
     html += `<tr class="group-spacer"><td colspan="${totalCols}" style="height:3px;background:var(--bg-3);"></td></tr>`;
+  }
+
+  // Extra bottom space so the last rows aren't hidden under the floating pagination bar
+  if (currentMonth === "ALL") {
+    html += `<tr class="table-bottom-spacer"><td colspan="${totalCols}"></td></tr>`;
   }
 
 tbody.innerHTML = html;
@@ -926,10 +936,10 @@ tbody.innerHTML = html;
 function renderPagination(totalGroups, totalPages) {
   const bar = document.getElementById("pagination-bar");
   if (currentMonth !== "ALL" || totalGroups === 0) {
-    bar.style.display = "none";
+    bar.classList.remove("visible");
     return;
   }
-  bar.style.display = "flex";
+  bar.classList.add("visible");
   bar.innerHTML = `
     <button class="btn btn-secondary btn-sm" id="page-prev" ${allViewPage <= 1 ? "disabled" : ""}>← Prev</button>
     <span>Page ${allViewPage} of ${totalPages} &middot; ${totalGroups} POs total</span>
