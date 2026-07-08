@@ -7,21 +7,33 @@
   <link rel="stylesheet" href="style.css" />
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+
+    /* Kill all transitions momentarily while switching themes — prevents every row/badge from animating color at once */
+    body.theme-switching, body.theme-switching * {
+      transition: none !important;
+    }
+
+    .page-body {
+      display: flex; flex-direction: column;
+      height: calc(100vh - 52px); /* 52px = topnav height, matches the sticky offset below */
+      overflow: hidden;
+    }
+
     .toolbar {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       padding: 12px 20px; background: var(--bg-2);
       border-bottom: 1px solid var(--border);
-      position: sticky; top: 52px; z-index: 90;
+      flex-shrink: 0;
     }
     .page-title { font-size: 15px; font-weight: 700; color: var(--text); }
     .page-title span { font-size: 12px; color: var(--text-2); font-weight: 400; font-family: var(--font-mono); margin-left: 6px; }
     .toolbar-sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
 
-    /* Month tabs */
     .month-tabs {
       display: flex; gap: 2px; padding: 10px 20px 0;
       background: var(--bg-2); border-bottom: 1px solid var(--border);
-      overflow-x: auto;
+      overflow-x: auto; flex-shrink: 0;
     }
     .month-tab {
       padding: 7px 14px; font-size: 12px; font-family: var(--font-mono);
@@ -36,10 +48,9 @@
     .tab-count { display: inline-block; background: var(--bg-3); color: var(--text-3); font-size: 10px; padding: 1px 5px; border-radius: 99px; margin-left: 4px; }
     .month-tab.active .tab-count { background: var(--accent); color: #fff; }
 
-    /* Stats strip */
     .stats-strip {
       display: flex; gap: 12px; padding: 10px 20px;
-      background: var(--bg); border-bottom: 1px solid var(--border-2); overflow-x: auto;
+      background: var(--bg); border-bottom: 1px solid var(--border-2); overflow-x: auto; flex-shrink: 0;
     }
     .stat-pill {
       display: flex; flex-direction: column; min-width: 110px;
@@ -52,7 +63,7 @@
     /* Table */
     .table-container {
       overflow-x: auto; overflow-y: auto;
-      max-height: calc(100vh - 230px);
+      flex: 1; min-height: 0;
       border: 1px solid var(--border); border-radius: var(--radius-lg);
       margin: 12px 20px; background: var(--bg-2);
     }
@@ -86,6 +97,8 @@
       color: var(--green); transition: all 0.15s;
     }
     .btn-file-view:hover { background: #215226; }
+    body.light .btn-file-view { border-color: #a7d8ae; background: #e6f6e8; color: #1e7a2e; }
+    body.light .btn-file-view:hover { background: #d3efd7; }
     .btn-file-remove {
       display: inline-flex; align-items: center;
       padding: 3px 5px; border-radius: var(--radius);
@@ -222,6 +235,10 @@
     .empty-state h3 { font-size: 15px; font-weight: 600; color: var(--text); margin: 10px 0 6px; }
     .empty-state p { font-size: 13px; }
 
+    .pagination-bar {
+      display: flex; align-items: center; justify-content: center; gap: 14px;
+      padding: 12px 20px; font-size: 12px; color: var(--text-2); font-family: var(--font-mono);
+    }
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-family: var(--font-sans); font-size: 13px; font-weight: 500; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; text-decoration: none; white-space: nowrap; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-primary   { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -230,6 +247,8 @@
     .btn-secondary:hover:not(:disabled) { background: var(--border); }
     .btn-danger    { background: #4d1515; color: var(--red); border-color: #6a2020; }
     .btn-danger:hover:not(:disabled) { background: #5a1a1a; }
+    body.light .btn-danger { background: #fbe4e4; color: #b91c1c; border-color: #f3b8b8; }
+    body.light .btn-danger:hover:not(:disabled) { background: #f7d0d0; }
     .btn-sm { padding: 5px 10px; font-size: 12px; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -306,6 +325,7 @@
 </nav>
 <script src="theme.js"></script>
 
+<div class="page-body">
 <!-- Toolbar -->
 <div class="toolbar">
   <span class="page-title">PO Monitoring <span id="toolbar-month-label">— JAN</span></span>
@@ -350,6 +370,8 @@
     <tbody id="table-body"></tbody>
   </table>
 </div>
+<div class="pagination-bar" id="pagination-bar" style="display:none;"></div>
+</div><!-- /.page-body -->
 
 <!-- Hidden file input for PDF upload -->
 <input type="file" id="file-input" accept="application/pdf,.pdf" style="display:none;" />
@@ -455,7 +477,9 @@
 <!-- Confirm Delete Modal -->
 <div class="modal-overlay" id="confirm-modal">
   <div class="modal" style="max-width:380px;padding:32px 24px 24px;text-align:center;">
-    <div style="font-size:32px;margin-bottom:10px;">🗑️</div>
+    <div class="confirm-remove-icon" style="background:#3a1a1a;color:var(--red);margin:0 auto 10px;">
+      <i data-lucide="trash-2" style="width:20px;height:20px;"></i>
+    </div>
     <h3 style="font-size:16px;font-weight:700;">Delete this entry?</h3>
     <p style="font-size:13px;color:var(--text-2);margin-top:6px;">This cannot be undone. The PO file attached (if any) will also be deleted.</p>
     <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
@@ -528,7 +552,8 @@ let expandedGroups  = new Set(); // tracks which PO groups are open
 let uploadTargetId  = null;
 let pdfViewingId    = null;
 let monthCounts     = {};
-
+let allViewPage     = 1;
+const ALL_VIEW_PAGE_SIZE = 50; // POs per page in ALL YEAR view — lower this if it's still heavy
 // ═══════════════════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -560,19 +585,35 @@ function visibleCols() { return ALL_COLUMNS.filter(c => c.visible); }
 // ═══════════════════════════════════════════════════════════════════════════
 function renderTabs() {
   const c = document.getElementById("month-tabs");
-  c.innerHTML = MONTH_ORDER.map(m => `
+  const yearTotal = Object.values(monthCounts).reduce((a,b) => a + (b||0), 0);
+  let html = `<button class="month-tab ${currentMonth === "ALL" ? "active" : ""}" data-month="ALL" style="border-color:var(--accent-2);">
+      ALL YEAR<span class="tab-count">${yearTotal}</span>
+    </button>`;
+  html += MONTH_ORDER.map(m => `
     <button class="month-tab ${m === currentMonth ? "active" : ""}" data-month="${m}">
       ${m}<span class="tab-count">${monthCounts[m] ?? 0}</span>
     </button>`).join("");
+  c.innerHTML = html;
   c.querySelectorAll(".month-tab").forEach(btn => {
     btn.addEventListener("click", () => {
       currentMonth = btn.dataset.month;
       localStorage.setItem("lastMonitoringMonth", currentMonth);
-      document.getElementById("toolbar-month-label").textContent = `— ${currentMonth}`;
+      document.getElementById("toolbar-month-label").textContent =
+        currentMonth === "ALL" ? "— ALL YEAR" : `— ${currentMonth}`;
+      allViewPage = 1;
       renderTabs(); loadMonth();
     });
   });
+  updateAllViewLocks();
 }
+
+function updateAllViewLocks() {
+  const isAll = currentMonth === "ALL";
+  document.getElementById("add-btn").disabled = isAll;
+  document.getElementById("scan-folder-btn").disabled = isAll;
+  document.getElementById("export-month-btn").disabled = isAll;
+}
+
 async function loadAllCounts() {
   for (const m of MONTH_ORDER) {
     try {
@@ -591,11 +632,25 @@ async function loadMonth() {
   document.getElementById("table-body").innerHTML =
     `<tr><td colspan="99" style="text-align:center;padding:40px;color:var(--text-3);">Loading…</td></tr>`;
   try {
-    const r = await fetch(`/api/sheet/${currentMonth}`);
-    const d = await r.json();
-    allRows = d.data || [];
-    monthCounts[currentMonth] = allRows.length;
-    renderTabs();
+    if (currentMonth === "ALL") {
+      let combined = [];
+      for (const m of MONTH_ORDER) {
+        try {
+          const r = await fetch(`/api/sheet/${m}`);
+          const d = await r.json();
+          const rows = d.data || [];
+          monthCounts[m] = rows.length;
+          combined = combined.concat(rows.map(row => ({ ...row, __srcMonth: m })));
+        } catch(e) { monthCounts[m] = monthCounts[m] ?? 0; }
+      }
+      allRows = combined;
+    } else {
+      const r = await fetch(`/api/sheet/${currentMonth}`);
+      const d = await r.json();
+      allRows = d.data || [];
+      monthCounts[currentMonth] = allRows.length;
+    }
+renderTabs();
     applyFilter();
   } catch(e) { toast("Failed to load data", "error"); }
 }
@@ -616,6 +671,7 @@ function applyFilter() {
     const ms = !s || (r["PURCHASE ORDER STATUS"] || "").toLowerCase().includes(s);
     return mq && ms;
   });
+if (currentMonth === "ALL") allViewPage = 1;
   renderTable();
   renderStats();
 }
@@ -649,13 +705,14 @@ function renderTable() {
   </tr>`;
 
   const tbody = document.getElementById("table-body");
-  if (!filteredRows.length) {
+if (!filteredRows.length) {
     tbody.innerHTML = `<tr><td colspan="${summaryCols.length + 4}">
       <div class="empty-state">
         <div><i data-lucide="inbox" style="width:32px;height:32px;"></i></div>
-        <h3>No entries for ${currentMonth}</h3>
+        <h3>No entries for ${currentMonth === "ALL" ? "the year" : currentMonth}</h3>
         <p>Click <strong>Add Entry</strong> to start, or adjust your search.</p>
       </div></td></tr>`;
+    document.getElementById("pagination-bar").style.display = "none";
     lucide.createIcons(); return;
   }
 
@@ -682,12 +739,22 @@ function renderTable() {
     }
   }
 
-  const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile + actions
+const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile + actions
+
+  // ── Pagination (ALL YEAR view only) ─────────────────────────────────────
+  let pageGroups = groups;
+  let totalPages = 1;
+  if (currentMonth === "ALL") {
+    totalPages = Math.max(1, Math.ceil(groups.length / ALL_VIEW_PAGE_SIZE));
+    if (allViewPage > totalPages) allViewPage = totalPages;
+    const start = (allViewPage - 1) * ALL_VIEW_PAGE_SIZE;
+    pageGroups = groups.slice(start, start + ALL_VIEW_PAGE_SIZE);
+  }
 
   let html = "";
-  let groupNum = 0;
+  let groupNum = (currentMonth === "ALL") ? (allViewPage - 1) * ALL_VIEW_PAGE_SIZE : 0;
 
-  for (const group of groups) {
+  for (const group of pageGroups) {
     groupNum++;
     const s          = group.summary;
     const itemCount  = group.items.length;
@@ -849,10 +916,27 @@ function renderTable() {
     html += `<tr class="group-spacer"><td colspan="${totalCols}" style="height:3px;background:var(--bg-3);"></td></tr>`;
   }
 
-  tbody.innerHTML = html;
+tbody.innerHTML = html;
   lucide.createIcons();
+  renderPagination(groups.length, totalPages);
 
   // (item count badges removed — cleaner without them)
+}
+
+function renderPagination(totalGroups, totalPages) {
+  const bar = document.getElementById("pagination-bar");
+  if (currentMonth !== "ALL" || totalGroups === 0) {
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "flex";
+  bar.innerHTML = `
+    <button class="btn btn-secondary btn-sm" id="page-prev" ${allViewPage <= 1 ? "disabled" : ""}>← Prev</button>
+    <span>Page ${allViewPage} of ${totalPages} &middot; ${totalGroups} POs total</span>
+    <button class="btn btn-secondary btn-sm" id="page-next" ${allViewPage >= totalPages ? "disabled" : ""}>Next →</button>
+  `;
+  document.getElementById("page-prev").addEventListener("click", () => { allViewPage--; renderTable(); });
+  document.getElementById("page-next").addEventListener("click", () => { allViewPage++; renderTable(); });
 }
 
 function escHtml(s) {
@@ -1201,10 +1285,32 @@ document.getElementById("search-input").addEventListener("input", applyFilter);
 document.getElementById("status-filter").addEventListener("change", applyFilter);
 
 // ═══════════════════════════════════════════════════════════════════════════
+// THEME SWITCH PERFORMANCE FIX
+// ═══════════════════════════════════════════════════════════════════════════
+// Disables CSS transitions for one frame whenever theme.js toggles body.light,
+// so hundreds/thousands of rows don't all animate color at once.
+(function setupThemeSwitchGuard() {
+  let lastHasLight = document.body.classList.contains("light");
+  const observer = new MutationObserver(() => {
+    const hasLight = document.body.classList.contains("light");
+    if (hasLight === lastHasLight) return; // ignore unrelated class changes
+    lastHasLight = hasLight;
+    document.body.classList.add("theme-switching");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.body.classList.remove("theme-switching");
+      });
+    });
+  });
+  observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════
 (async function init() {
-  document.getElementById("toolbar-month-label").textContent = `— ${currentMonth}`;
+  document.getElementById("toolbar-month-label").textContent =
+    currentMonth === "ALL" ? "— ALL YEAR" : `— ${currentMonth}`;
   buildColPanel();
   renderTabs();
   await loadMonth();
