@@ -438,12 +438,19 @@
         <div class="form-group span-2"><label class="form-label">Remarks</label><input class="form-input" type="text" placeholder="Any additional notes" data-field="REMARKS" /></div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
-      <button class="btn btn-primary" id="modal-save-btn"><i data-lucide="save" style="width:13px;height:13px;"></i> Save Entry</button>
+<div class="modal-footer" style="justify-content:space-between;">
+      <button class="btn btn-danger" id="modal-delete-btn" style="display:none;">
+        <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entry
+      </button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="modal-save-btn"><i data-lucide="save" style="width:13px;height:13px;"></i> Save Entry</button>
+      </div>
     </div>
   </div>
 </div>
+
+<!-- Confirm Delete Modal -->
 
 <!-- Confirm Delete Modal -->
 <div class="modal-overlay" id="confirm-modal">
@@ -1084,6 +1091,7 @@ function openAdd() {
   editingId = null;
   document.getElementById("modal-title").textContent = `Add Entry — ${currentMonth}`;
   document.querySelectorAll("#form-grid [data-field]").forEach(el => el.value = "");
+  document.getElementById("modal-delete-btn").style.display = "none"; 
   document.getElementById("entry-modal").classList.add("open");
 }
 function openEdit(id) {
@@ -1094,10 +1102,12 @@ function openEdit(id) {
   document.querySelectorAll("#form-grid [data-field]").forEach(el => {
     el.value = row[el.dataset.field] ?? "";
   });
+  document.getElementById("modal-delete-btn").style.display = "inline-flex";
   document.getElementById("entry-modal").classList.add("open");
 }
 function closeModal() {
   document.getElementById("entry-modal").classList.remove("open");
+  document.getElementById("modal-delete-btn").style.display = "none";
   editingId = null;
 }
 
@@ -1148,7 +1158,9 @@ document.getElementById("modal-cancel-btn").addEventListener("click", closeModal
 document.getElementById("entry-modal").addEventListener("click", e => {
   if (e.target === document.getElementById("entry-modal")) closeModal();
 });
-
+document.getElementById("modal-delete-btn").addEventListener("click", () => {
+  if (editingId) confirmDelete(editingId);
+});
 // ═══════════════════════════════════════════════════════════════════════════
 // DELETE
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1169,6 +1181,7 @@ document.getElementById("confirm-delete").addEventListener("click", async () => 
       toast("Entry deleted");
       document.getElementById("confirm-modal").classList.remove("open");
       deleteTargetId = null;
+      closeModal();
       await loadMonth();
     } else { toast(d.error || "Delete failed", "error"); }
   } catch(e) { toast("Network error", "error"); }
@@ -1260,16 +1273,16 @@ document.getElementById("status-filter").addEventListener("change", applyFilter)
         <div id="sr-unmatched-list"></div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" id="scan-cancel-btn">Close</button>
-      <button class="btn btn-primary" id="scan-run-btn">
-        <i data-lucide="scan-search" style="width:13px;height:13px;"></i> Scan &amp; Link
-      </button>
-    </div>
-  </div>
-</div>
+      <div class="modal-footer">
+            <button class="btn btn-secondary" id="scan-cancel-btn">Close</button>
+            <button class="btn btn-primary" id="scan-run-btn">
+              <i data-lucide="scan-search" style="width:13px;height:13px;"></i> Scan &amp; Link
+            </button>
+          </div>
+        </div>
+      </div>
 
-<script>
+      <script>
 // ── Scan Folder Logic ─────────────────────────────────────────────────────────
 document.getElementById("scan-folder-btn").addEventListener("click", () => {
   // Pre-fill with a sensible default if empty
