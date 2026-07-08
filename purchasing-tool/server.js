@@ -109,6 +109,28 @@ function sendWorkbook(res, wb, filename) {
 // API ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ── Config: serve Gemini API key to frontend (never commit data/config.json) ──
+app.get("/api/config", (req, res) => {
+  const configPath = path.join(__dirname, "data", "config.json");
+  console.log(`[Config] Request received. Looking for: ${configPath}`);
+  try {
+    if (!fs.existsSync(configPath)) {
+      console.warn(`[Config] FILE NOT FOUND at ${configPath}`);
+      return res.json({ GEMINI_API_KEY: "" });
+    }
+    const raw = fs.readFileSync(configPath, "utf8");
+    console.log(`[Config] File found, ${raw.length} bytes read`);
+    const cfg = JSON.parse(raw);
+    console.log(`[Config] Parsed keys present: ${Object.keys(cfg).join(", ") || "(none)"}`);
+    const key = cfg.GEMINI_API_KEY || "";
+    console.log(`[Config] GEMINI_API_KEY length: ${key.length} (${key ? "present" : "EMPTY"})`);
+    res.json({ GEMINI_API_KEY: key });
+  } catch (e) {
+    console.error("[Config] ERROR reading/parsing config.json:", e.message);
+    res.status(500).json({ GEMINI_API_KEY: "", error: e.message });
+  }
+});
+
 app.get("/api/sheets", (req, res) => {
   try {
     res.json({ sheets: getMonths() });
