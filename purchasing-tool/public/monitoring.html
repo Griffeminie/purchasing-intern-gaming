@@ -360,7 +360,7 @@
 
 <!-- Stats Strip -->
 <div class="stats-strip">
-  <div class="stat-pill"><span class="stat-pill-label">Entries</span><span class="stat-pill-value" id="stat-entries">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">POs</span><span class="stat-pill-value" id="stat-entries">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Total Amount</span><span class="stat-pill-value" id="stat-total">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Served</span><span class="stat-pill-value" id="stat-served">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Pending</span><span class="stat-pill-value" id="stat-pending">—</span></div>
@@ -557,8 +557,9 @@ let expandedGroups  = new Set(); // tracks which PO groups are open
 let uploadTargetId  = null;
 let pdfViewingId    = null;
 let monthCounts     = {};
-let allViewPage     = 1;
-const ALL_VIEW_PAGE_SIZE = 50; // POs per page in ALL YEAR view — lower this if it's still heavy
+let allViewPage = 1;
+const ALL_VIEW_PAGE_SIZE = 50; // POs per page for the ALL YEAR view
+const MONTH_PAGE_SIZE    = 10; // POs per page for a single-month view
 // ═══════════════════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -585,18 +586,30 @@ function toast(msg, type = "success") {
 }
 function visibleCols() { return ALL_COLUMNS.filter(c => c.visible); }
 
+// Counts unique POs the same way the table groups rows: rows sharing a
+// non-empty PO NUMBER count as ONE PO; rows with no PO NUMBER count individually.
+function countUniquePOs(rows) {
+  const seen = new Set();
+  let solo = 0;
+  for (const r of rows) {
+    const key = (r["PO NUMBER"] || "").trim();
+    if (key) seen.add(key);
+    else solo++;
+  }
+  return seen.size + solo;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MONTH TABS
 // ═══════════════════════════════════════════════════════════════════════════
 function renderTabs() {
   const c = document.getElementById("month-tabs");
-  const yearTotal = Object.values(monthCounts).reduce((a,b) => a + (b||0), 0);
   let html = `<button class="month-tab ${currentMonth === "ALL" ? "active" : ""}" data-month="ALL" style="border-color:var(--accent-2);">
-      ALL YEAR<span class="tab-count">${yearTotal}</span>
+      ALL
     </button>`;
   html += MONTH_ORDER.map(m => `
     <button class="month-tab ${m === currentMonth ? "active" : ""}" data-month="${m}">
-      ${m}<span class="tab-count">${monthCounts[m] ?? 0}</span>
+      ${m}
     </button>`).join("");
   c.innerHTML = html;
   c.querySelectorAll(".month-tab").forEach(btn => {
@@ -624,7 +637,7 @@ async function loadAllCounts() {
     try {
       const r = await fetch(`/api/sheet/${m}`);
       const d = await r.json();
-      monthCounts[m] = (d.data || []).length;
+      monthCounts[m] = countUniquePOs(d.data || []);
     } catch(e) { monthCounts[m] = 0; }
   }
   renderTabs();
@@ -644,7 +657,7 @@ async function loadMonth() {
           const r = await fetch(`/api/sheet/${m}`);
           const d = await r.json();
           const rows = d.data || [];
-          monthCounts[m] = rows.length;
+          monthCounts[m] = countUniquePOs(rows);
           combined = combined.concat(rows.map(row => ({ ...row, __srcMonth: m })));
         } catch(e) { monthCounts[m] = monthCounts[m] ?? 0; }
       }
@@ -653,7 +666,7 @@ async function loadMonth() {
       const r = await fetch(`/api/sheet/${currentMonth}`);
       const d = await r.json();
       allRows = d.data || [];
-      monthCounts[currentMonth] = allRows.length;
+      monthCounts[currentMonth] = countUniquePOs(allRows);
     }
 renderTabs();
     applyFilter();
@@ -676,7 +689,7 @@ function applyFilter() {
     const ms = !s || (r["PURCHASE ORDER STATUS"] || "").toLowerCase().includes(s);
     return mq && ms;
   });
-if (currentMonth === "ALL") allViewPage = 1;
+  allViewPage = 1;
   renderTable();
   renderStats();
 }
@@ -746,18 +759,16 @@ if (!filteredRows.length) {
 
 const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile + actions
 
-  // ── Pagination (ALL YEAR view only) ─────────────────────────────────────
-  let pageGroups = groups;
-  let totalPages = 1;
-  if (currentMonth === "ALL") {
-    totalPages = Math.max(1, Math.ceil(groups.length / ALL_VIEW_PAGE_SIZE));
-    if (allViewPage > totalPages) allViewPage = totalPages;
-    const start = (allViewPage - 1) * ALL_VIEW_PAGE_SIZE;
-    pageGroups = groups.slice(start, start + ALL_VIEW_PAGE_SIZE);
-  }
+  // ── Pagination (applies to every month view, incl. ALL YEAR) ───────────
+  const pageSize  = currentMonth === "ALL" ? ALL_VIEW_PAGE_SIZE : MONTH_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
+  if (allViewPage > totalPages) allViewPage = totalPages;
+  if (allViewPage < 1) allViewPage = 1;
+  const pgStart = (allViewPage - 1) * pageSize;
+  const pageGroups = groups.slice(pgStart, pgStart + pageSize);
 
   let html = "";
-  let groupNum = (currentMonth === "ALL") ? (allViewPage - 1) * ALL_VIEW_PAGE_SIZE : 0;
+  let groupNum = (allViewPage - 1) * pageSize;
 
   for (const group of pageGroups) {
     groupNum++;
@@ -922,9 +933,7 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
   }
 
   // Extra bottom space so the last rows aren't hidden under the floating pagination bar
-  if (currentMonth === "ALL") {
-    html += `<tr class="table-bottom-spacer"><td colspan="${totalCols}"></td></tr>`;
-  }
+  html += `<tr class="table-bottom-spacer"><td colspan="${totalCols}"></td></tr>`;
 
 tbody.innerHTML = html;
   lucide.createIcons();
@@ -935,14 +944,14 @@ tbody.innerHTML = html;
 
 function renderPagination(totalGroups, totalPages) {
   const bar = document.getElementById("pagination-bar");
-  if (currentMonth !== "ALL" || totalGroups === 0) {
+  if (totalGroups === 0) {
     bar.classList.remove("visible");
     return;
   }
   bar.classList.add("visible");
   bar.innerHTML = `
     <button class="btn btn-secondary btn-sm" id="page-prev" ${allViewPage <= 1 ? "disabled" : ""}>← Prev</button>
-    <span>Page ${allViewPage} of ${totalPages} &middot; ${totalGroups} POs total</span>
+    <span>Page ${allViewPage} of ${totalPages}</span>
     <button class="btn btn-secondary btn-sm" id="page-next" ${allViewPage >= totalPages ? "disabled" : ""}>Next →</button>
   `;
   document.getElementById("page-prev").addEventListener("click", () => { allViewPage--; renderTable(); });
