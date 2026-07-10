@@ -138,7 +138,7 @@
       <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
         <div>
           <h1>Monitoring Dashboard</h1>
-          <p>Live visualization from monitoring.xlsx — Year 2026</p>
+          <p>Live data from SQLite database — Year 2026</p>
           <p style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:4px;" id="data-note">Loading...</p>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -174,7 +174,7 @@
           <i data-lucide="trending-down" class="stat-icon" style="width:15px;height:15px;color:var(--green);"></i>
         </div>
         <div class="stat-value" id="kpi-savings" style="color:var(--green);">—</div>
-        <div class="stat-sub">vs original price</div>
+        <div class="stat-sub">from discounts in POs</div>
       </div>
       <div class="stat-card">
         <div class="stat-header">
@@ -257,10 +257,8 @@
             <thead>
               <tr>
                 <th>Supplier</th>
-                <th class="text-right">Original Price</th>
-                <th class="text-right">Actual Amount</th>
-                <th class="text-right">Savings</th>
-                <th class="text-right">Savings %</th>
+                <th class="text-right">Total Spend</th>
+                <th class="text-right">Discount Savings</th>
               </tr>
             </thead>
             <tbody id="savings-body">
