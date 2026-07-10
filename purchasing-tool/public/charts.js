@@ -95,7 +95,7 @@ async function loadDashboard(forceRefresh = false) {
   const logEl = document.getElementById("debug-log");
   if (logEl) logEl.innerHTML = "";
 
-  log(forceRefresh ? "Manual refresh — rebuilding from Excel..." : "Loading dashboard...");
+  log(forceRefresh ? "Manual refresh — rebuilding from SQLite..." : "Loading dashboard...");
 
   // Show loading states
   ["loading-monthly","loading-supplier","loading-status","loading-dept"].forEach(id => {
@@ -111,7 +111,7 @@ async function loadDashboard(forceRefresh = false) {
   }
 
   const note = document.getElementById("data-note");
-  if (forceRefresh && note) note.textContent = "Rebuilding from Excel — this may take a moment…";
+  if (forceRefresh && note) note.textContent = "Rebuilding from SQLite — this may take a moment…";
 
   try {
     const url = forceRefresh ? "/api/dashboard?refresh=1" : "/api/dashboard";
@@ -128,7 +128,7 @@ async function loadDashboard(forceRefresh = false) {
     const data = await res.json();
     if (data.error) { log(`API error: ${data.error}`, "error"); throw new Error(data.error); }
 
-    log(`Source: ${data.fromCache ? (data.stale ? "stale cache" : "server cache") : "fresh from Excel"}`, data.fromCache ? "info" : "ok");
+    log(`Source: ${data.fromCache ? (data.stale ? "stale cache" : "server cache") : "fresh from SQLite"}`, data.fromCache ? "info" : "ok");
     log(`Raw rows: ${data.rawRows ?? "?"}`, "ok");
     log(`Sheets: ${(data.sheetsDetected || []).join(", ")}`, "ok");
 
@@ -200,7 +200,8 @@ function renderAll(data) {
 // ─── KPI Cards ────────────────────────────────────────────────────────────────
 function renderKPIs(data) {
   const total = data.monthlySpending.reduce((s, m) => s + (m.total || 0), 0);
-  const totalSavings = (data.savingsData || []).reduce((s, r) => s + (parseFloat(r["TOTAL COST SAVINGS"]) || 0), 0);
+  // Savings = sum of abs(negative items) across all months — calculated in db.js
+  const totalSavings = data.monthlySpending.reduce((s, m) => s + (m.savings || 0), 0);
   const poCount = Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
 
   document.getElementById("kpi-total").textContent    = fmt(total);
@@ -327,44 +328,43 @@ function renderDeptChart(deptData) {
 }
 
 // ─── Savings Table ────────────────────────────────────────────────────────────
+// Savings = sum of negative-priced items (discounts) per supplier
+// Calculated in db.js from qty * unit_price where result < 0
 function renderSavingsTable(savingsData) {
   const tbody = document.getElementById("savings-body");
-  if (!savingsData?.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:24px;">No savings data yet — fill in the Original Price column in your Excel to see comparisons</td></tr>`;
+
+  const rows = (savingsData || []).filter(r => r["SUPPLIER'S NAME"] && parseFloat(r["TOTAL COST SAVINGS"]) > 0);
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:24px;">No discount savings recorded yet — discounts appear as negative-priced items in the monitoring</td></tr>`;
     return;
   }
 
-  let totSavings = 0, totOriginal = 0;
+  let totAmount = 0, totSavings = 0;
 
-  tbody.innerHTML = savingsData.filter(r => r["SUPPLIER'S NAME"]).map(row => {
-    const original = parseFloat(row["ORIGINAL PRICE"])     || 0;
-    const actual   = parseFloat(row["TOTAL AMOUNT"])       || 0;
-    const savings  = parseFloat(row["TOTAL COST SAVINGS"]) || Math.max(0, original - actual);
-    const pct      = original > 0 ? (savings / original * 100) : 0;
-    totSavings  += savings;
-    totOriginal += original;
-    const cls = pct > 0 ? "diff-row-match" : (pct < 0 ? "diff-row-mismatch" : "");
+  tbody.innerHTML = rows.map(row => {
+    const actual  = parseFloat(row["TOTAL AMOUNT"])       || 0;
+    const savings = parseFloat(row["TOTAL COST SAVINGS"]) || 0;
+    const pct     = actual > 0 ? (savings / actual * 100) : 0;
+    totAmount  += actual;
+    totSavings += savings;
     return `<tr>
       <td>${row["SUPPLIER'S NAME"]}</td>
-      <td class="text-right mono">${fmt(original)}</td>
       <td class="text-right mono">${fmt(actual)}</td>
       <td class="text-right mono" style="color:var(--green)">${fmt(savings)}</td>
-      <td class="text-right mono ${cls}">${pct.toFixed(1)}%</td>
     </tr>`;
   }).join("");
 
-  const pct = totOriginal > 0 ? (totSavings / totOriginal * 100) : 0;
+  const pct = totAmount > 0 ? (totSavings / totAmount * 100) : 0;
   tbody.innerHTML += `
     <tr style="border-top:2px solid var(--border);font-weight:700;">
       <td>TOTAL</td>
-      <td class="text-right mono">${fmt(totOriginal)}</td>
-      <td class="text-right mono">—</td>
+      <td class="text-right mono">${fmt(totAmount)}</td>
       <td class="text-right mono" style="color:var(--green)">${fmt(totSavings)}</td>
-      <td class="text-right mono" style="color:var(--green)">${pct.toFixed(1)}%</td>
     </tr>`;
 
   const kpiPct = document.getElementById("kpi-savings-pct");
-  if (kpiPct && pct > 0) kpiPct.textContent = `${pct.toFixed(1)}% below original prices`;
+  if (kpiPct && pct > 0) kpiPct.textContent = `${pct.toFixed(1)}% saved via discounts`;
 }
 
 document.addEventListener("DOMContentLoaded", () => loadDashboard(false));
