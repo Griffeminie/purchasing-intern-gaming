@@ -131,6 +131,25 @@ app.get("/api/config", (req, res) => {
   }
 });
 
+app.get("/api/suppliers", (req, res) => {
+  const filePath = path.join(__dirname, "data", "suppliers.json");
+  console.log(`[Suppliers] Request received. Looking for: ${filePath}`);
+  try {
+    if (!fs.existsSync(filePath)) {
+      console.warn(`[Suppliers] FILE NOT FOUND at ${filePath}`);
+      return res.json({ suppliers: [] });
+    }
+    const raw = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(raw);
+    const count = Array.isArray(data) ? data.length : (data.suppliers || []).length;
+    console.log(`[Suppliers] Loaded ${count} records`);
+    res.json(data);
+  } catch (e) {
+    console.error("[Suppliers] ERROR reading/parsing suppliers.json:", e.message);
+    res.status(500).json({ suppliers: [], error: e.message });
+  }
+});
+
 app.get("/api/sheets", (req, res) => {
   try {
     res.json({ sheets: getMonths() });
@@ -351,6 +370,8 @@ app.post("/api/canvass/export", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PO FOLDER AUTO-SCAN

@@ -1192,13 +1192,32 @@
     // Override renderPage td rendering to respect hiddenCols
     const _origRender = renderPage;
 
-    // ── Init ───────────────────────────────────────────────────────────────────
-    allSuppliers = loadSuppliers();
-    updateStats();
-    populateFilters();
-    loadColState(); 
-    applyFilters();
-    lucide.createIcons();
+// ── Init ───────────────────────────────────────────────────────────────────
+    async function initSuppliers() {
+      try {
+        const res = await fetch('/api/suppliers');
+        if (res.ok) {
+          const data = await res.json();
+          const rawList = Array.isArray(data) ? data : data.suppliers;
+          if (Array.isArray(rawList) && rawList.length) {
+            allSuppliers = rawList;
+            saveSuppliers(allSuppliers); // keep localStorage in sync as a cache
+          } else {
+            allSuppliers = loadSuppliers();
+          }
+        } else {
+          allSuppliers = loadSuppliers();
+        }
+      } catch (err) {
+        allSuppliers = loadSuppliers(); // server unreachable — fall back to cache
+      }
+      updateStats();
+      populateFilters();
+      loadColState();
+      applyFilters();
+      lucide.createIcons();
+    }
+    initSuppliers();
     document.getElementById('clear-msg-btn').addEventListener('click', () => {
     document.getElementById('viber-message').value = '';
   });
