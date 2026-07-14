@@ -377,9 +377,15 @@
       <!-- File list -->
       <div id="file-list" class="file-list"></div>
 
-      <!-- Extract button bar -->
-      <div id="extract-bar" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <span style="font-size:13px;color:var(--text-2);" id="extract-hint">Ready to extract</span>
+        <!-- Extract button bar -->
+      <div id="extract-bar" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span style="font-size:13px;color:var(--text-2);" id="extract-hint">Ready to extract</span>
+          <span id="ai-status" style="font-size:11px;font-family:var(--font-mono);display:flex;align-items:center;gap:6px;">
+            <span id="ai-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-3);display:inline-block;"></span>
+            <span id="ai-label">AI checking…</span>
+          </span>
+        </div>
         <button class="cbtn cbtn-amber" onclick="extractAll()" id="extract-btn">
           <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Extract All with AI
         </button>
@@ -391,15 +397,7 @@
           oninput="applyDevKey(this.value)" />
         <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-3);white-space:nowrap;">dev override</span>
       </div>
-      <span id="ai-status" style="font-size:11px;font-family:var(--font-mono);display:flex;align-items:center;gap:6px;">
-      <span id="ai-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-3);display:inline-block;"></span>
-      <span id="ai-label">AI checking…</span>
-      </span>
-      <button class="cbtn cbtn-amber" onclick="extractAll()" id="extract-btn">
-      <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Extract All with AI
-      </button>
     </div>
-
     <!-- Suppliers (built after extraction) -->
     <div class="c-card" id="suppliers-card" style="display:none;">
       <div class="c-card-title">

@@ -186,6 +186,33 @@
 
     /* ── Empty ── */
     .empty-hint { text-align:center; padding:40px; color:var(--text-3); font-size:13px; }
+
+    .unsaved-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2000; opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .unsaved-overlay.visible { opacity: 1; pointer-events: auto; }
+
+    .unsaved-modal {
+      background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px; max-width: 360px; width: 90%; text-align: center;
+      transform: scale(0.9) translateY(10px); opacity: 0;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .unsaved-overlay.visible .unsaved-modal { transform: scale(1) translateY(0); opacity: 1; }
+
+    .unsaved-icon {
+      width: 44px; height: 44px; border-radius: 50%; background: #2a1800; color: #f59e0b;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+    }
+    body.light .unsaved-icon { background: #fef3d0; color: #b45309; }
+    .unsaved-modal h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .unsaved-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
+    .unsaved-actions  { display: flex; gap: 10px; justify-content: center; }
+    .unsaved-actions .cbtn { flex: 1; justify-content: center; }
   </style>
 </head>
 <body>
@@ -212,6 +239,19 @@
   </div>
 </nav>
 <script src="theme.js"></script>
+<div class="unsaved-overlay" id="unsaved-overlay">
+  <div class="unsaved-modal">
+    <div class="unsaved-icon">
+      <i data-lucide="alert-triangle" style="width:20px;height:20px;"></i>
+    </div>
+    <h3>Unsaved changes</h3>
+    <p>You have PO files or extracted data that hasn't been saved to Monitoring yet. If you leave now, it will be lost.</p>
+    <div class="unsaved-actions">
+      <button class="btn btn-secondary" onclick="cancelLeave()">Stay on Page</button>
+      <button class="btn btn-danger" onclick="confirmLeave()">Leave Anyway</button>
+    </div>
+  </div>
+</div>
 
 <div class="page-wrap">
 
@@ -299,6 +339,51 @@ let queuedFiles   = [];   // File objects waiting to extract
 let extractedPOs  = [];   // { filename, method, po_number, supplier, rows[], excluded }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// UNSAVED CHANGES TRACKING
+// ═══════════════════════════════════════════════════════════════════════════
+let hasUnsavedChanges = false;
+function updateDirtyState() {
+  hasUnsavedChanges = queuedFiles.length > 0 || extractedPOs.length > 0;
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (!hasUnsavedChanges) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+let pendingNavUrl = null;
+
+function interceptNavLinks() {
+  document.querySelectorAll('.topnav nav a').forEach(link => {
+    link.addEventListener('click', (e) => {
+      if (!hasUnsavedChanges) return; // let it navigate normally
+      e.preventDefault();
+      pendingNavUrl = link.getAttribute('href');
+      showUnsavedModal();
+    });
+  });
+}
+
+function showUnsavedModal() {
+  document.getElementById('unsaved-overlay').classList.add('visible');
+  lucide.createIcons();
+}
+
+function cancelLeave() {
+  document.getElementById('unsaved-overlay').classList.remove('visible');
+  pendingNavUrl = null;
+}
+
+function confirmLeave() {
+  hasUnsavedChanges = false; // prevent beforeunload from also firing
+  if (pendingNavUrl) window.location.href = pendingNavUrl;
+}
+
+document.addEventListener('DOMContentLoaded', interceptNavLinks);
+interceptNavLinks(); // also run immediately in case DOMContentLoaded already fired
+
+// ═══════════════════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════════════════
 function fmt(n) {
@@ -347,6 +432,7 @@ function addFiles(files) {
       queuedFiles.push(f);
     }
   }
+  updateDirtyState();
   renderQueue();
 }
 
@@ -371,11 +457,13 @@ function renderQueue() {
 
 function removeFile(i) {
   queuedFiles.splice(i, 1);
+  updateDirtyState();
   renderQueue();
 }
 
 document.getElementById("clear-btn").addEventListener("click", () => {
   queuedFiles = [];
+  updateDirtyState();
   renderQueue();
   document.getElementById("extract-bar").style.display = "none";
 });
@@ -430,6 +518,7 @@ document.getElementById("extract-btn").addEventListener("click", async () => {
     }
 
     queuedFiles = [];
+    updateDirtyState();
     renderQueue();
     renderReview();
     status.textContent = `Extracted ${data.results.length} PO(s)`;
@@ -678,6 +767,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
       toast(`✓ ${data.saved} rows saved to ${month} monitoring`);
       // Clear saved POs from review
       extractedPOs = extractedPOs.filter(p => p.excluded);
+      updateDirtyState();
       renderReview();
     } else {
       toast(data.error || "Save failed", "error");
