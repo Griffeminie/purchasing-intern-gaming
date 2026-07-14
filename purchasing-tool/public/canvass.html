@@ -172,6 +172,7 @@
     .review-table tr:hover td { background:var(--bg-3); }
     .review-table input { background:none; border:none; color:var(--text); font-family:var(--font-mono); font-size:12px; outline:none; width:100%; min-width:60px; }
     .review-table input:focus { background:var(--bg-3); border-radius:3px; padding:1px 4px; }
+    .review-table input.no-correlate::placeholder { color:#f85149; font-style:italic; }
 
     /* Supplier column color coding */
     .th-s0 { background:#0a1f3a !important; color:#7dd3fc !important; }
@@ -408,7 +409,10 @@
       <div class="sup-tabs" id="sup-tabs"></div>
       <div class="sup-panel" id="sup-panel"></div>
 
-      <div style="display:flex;justify-content:flex-end;margin-top:18px;">
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;flex-wrap:wrap;">
+        <button class="cbtn cbtn-ghost" onclick="matchItemsAcrossSuppliers()" id="match-items-btn" title="AI-group items that mean the same thing across suppliers">
+          <i data-lucide="link" style="width:14px;height:14px;"></i> Match Items Across Suppliers
+        </button>
         <button class="cbtn cbtn-amber" onclick="buildReview()">
           <i data-lucide="table-2" style="width:14px;height:14px;"></i> Build Review Table
         </button>
@@ -526,6 +530,31 @@ Rules:
 - Do not invent values. If a value cannot be found, use an empty string "" — never guess or fabricate a name, address, or number.
 - Output plain human-readable text only. Never include special/control tokens such as <bos>, <eos>, <pad>, <unk>, <start_of_turn>, <end_of_turn> or any other bracketed tokens anywhere in a value.
 - Return ONLY JSON. No markdown. No explanations. No code blocks.
+`;
+
+const ITEM_MATCH_PROMPT = `
+You are given items from MULTIPLE supplier quotations for the SAME canvass request.
+Different suppliers describe the same physical product differently
+(e.g. "BATTERY EVEREADY AA", "BATTERY AA ENERGIZER", "GP ULTRA AA (4 PCS) ALKALINE BATTERY"
+are all the same product: AA batteries).
+
+Group items that refer to the SAME physical product/spec across suppliers, even if brand,
+wording, or order differs. Do NOT group genuinely different products or specs
+(e.g. different paper sizes, different column counts on notebooks).
+
+For each group, pick ONE short, generic, brand-neutral canonical name (no brand names,
+no supplier item codes), e.g. "BATTERY AA", "BOND PAPER SHORT 70GSM", "WHITE FOLDER LONG",
+"COLUMNAR NOTEBOOK 8 COLUMN".
+
+Return ONLY valid JSON, no markdown, no explanations, in exactly this structure:
+[
+  { "canonicalName": "BATTERY AA", "itemIds": ["s1i3","s2i7","s3i1"] }
+]
+
+Every item id in the input must appear in exactly one group. If an item has no match,
+put it alone in its own group with a clean canonical name.
+
+Items:
 `;
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -862,6 +891,7 @@ const retryBtn = f.status === 'error'
           <input class="ext-item-input ext-no" type="text" value="${escHtml(it.itemNo)}" placeholder="#"
             oninput="updItem('${it.id}',${s.id},'itemNo',this.value)" />
           <input class="ext-item-input ext-desc" type="text" value="${escHtml(it.description)}" placeholder="Description"
+            title="${it.originalDescription ? 'Originally: ' + escHtml(it.originalDescription) : ''}"
             oninput="updItem('${it.id}',${s.id},'description',this.value)" />
           <input class="ext-item-input ext-qty" type="text" value="${escHtml(it.qty)}" placeholder="Qty"
             oninput="updItem('${it.id}',${s.id},'qty',this.value)" />
@@ -870,7 +900,7 @@ const retryBtn = f.status === 'error'
           <span class="ext-item-currency">₱</span>
           <input class="ext-item-input ext-price" type="text" value="${escHtml(it.unitPrice)}" placeholder="0.00"
             oninput="updItem('${it.id}',${s.id},'unitPrice',this.value)" />
-          <button class="ext-item-remove" onclick="removeItem('${it.id}',${s.id})" title="Remove item">
+        <button class="ext-item-remove" onclick="removeItem('${it.id}',${s.id})" title="Remove item">
             <i data-lucide="x" style="width:12px;height:12px;"></i>
           </button>
         </div>`).join('') : `<div class="sup-empty-items">No items yet — extract a quotation or add one manually.</div>`;
@@ -1115,16 +1145,93 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       renderSuppliers();
     }
 
+// ── Match items across suppliers (AI groups similar items into one name) ──
+    async function matchItemsAcrossSuppliers() {
+      await configReady;
+      if (!GEMINI_API_KEY) {
+        toast('Add your Gemini API key in canvass.html first.', 'error', 6000);
+        return;
+      }
+      if (suppliers.length < 2) {
+        toast('Need at least 2 suppliers to match common items.', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('match-items-btn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Matching…'; }
+
+      const allItems = [];
+      suppliers.forEach(s => {
+        s.items.filter(it => it.checked).forEach(it => {
+          allItems.push({ id: it.id, supplier: s.name, description: it.description });
+        });
+      });
+
+      if (!allItems.length) {
+        toast('No items to match yet.', 'error');
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="link" style="width:14px;height:14px;"></i> Match Items Across Suppliers'; lucide.createIcons(); }
+        return;
+      }
+
+      try {
+        const payload = { contents: [{ parts: [{ text: ITEM_MATCH_PROMPT + JSON.stringify(allItems, null, 2) }] }] };
+        const resp = await fetch(GEMINI_URL(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error.message);
+
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const cleaned = stripModelTokens(rawText.replace(/```json/gi,'').replace(/```/g,'').trim());
+        const groups = JSON.parse(cleaned);
+
+        const idToCanonical   = {};
+        const idToGroupIndex  = {};
+        groups.forEach((g, gi) => (g.itemIds || []).forEach(id => {
+          idToCanonical[id]  = g.canonicalName;
+          idToGroupIndex[id] = gi; // position of this group in the AI's returned order
+        }));
+
+        suppliers.forEach(s => {
+          s.items.forEach(it => {
+            const canonical = idToCanonical[it.id];
+            if (canonical && canonical.trim().toUpperCase() !== it.description.trim().toUpperCase()) {
+              it.originalDescription = it.originalDescription || it.description; // remember what AI originally read
+              it.description = canonical; // overwrite the actual field the user edits
+            }
+            // Unmatched items sort to the bottom, after every real group
+            it.groupIndex = (idToGroupIndex[it.id] !== undefined) ? idToGroupIndex[it.id] : Infinity;
+          });
+          // Sort so line N is the same product across every supplier tab.
+          // Stable sort (by groupIndex) keeps same-group items in their original relative order.
+          s.items.sort((a, b) => a.groupIndex - b.groupIndex);
+        });
+
+        appendRawOutput('item-matching', groups);
+        markDirty();
+        renderSuppliers();
+        toast(`Matched items into ${groups.length} common group${groups.length !== 1 ? 's' : ''}.`, 'success');
+      } catch (e) {
+        console.error(e);
+        toast('Matching failed: ' + e.message, 'error', 5000);
+      }
+
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="link" style="width:14px;height:14px;"></i> Match Items Across Suppliers'; lucide.createIcons(); }
+    }
+
     // ── Build review table ───────────────────────────────────────────────────
     function buildReview() {
       markDirty();
       const descMap = new Map();
 
-      suppliers.forEach((s, si) => {
+    suppliers.forEach((s, si) => {
         s.items.filter(it => it.checked).forEach(it => {
-          const key = it.description.trim();
+          const displayName = it.description.trim();
+          const key = displayName.toUpperCase(); // case-insensitive grouping
           if (!descMap.has(key)) {
-            const row = { desc:key, qty:it.qty||'1', unit:it.unit||'pce' };
+            const row = { desc:displayName, qty:it.qty||'1', unit:it.unit||'pce' };
             suppliers.forEach((_,i) => row[`p${i}`] = '');
             descMap.set(key, row);
           }
@@ -1196,12 +1303,17 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
           <td><input value="${escHtml(r.desc)}" oninput="reviewRows[${ri}].desc=this.value" style="min-width:180px;" /></td>
           <td><input value="${escHtml(r.qty)}"  oninput="reviewRows[${ri}].qty=this.value"  style="width:50px;text-align:center;" /></td>
           <td><input value="${escHtml(r.unit)}" oninput="reviewRows[${ri}].unit=this.value" style="width:50px;text-align:center;" /></td>
-          ${suppliers.map((_,si) => `
-            <td><input type="number" value="${r[`p${si}`]||''}" placeholder="—"
+        ${suppliers.map((_,si) => {
+            const val = r[`p${si}`] || '';
+            const noMatch = !val && suppliers.length > 1;
+            return `
+            <td><input type="number" value="${val}" placeholder="${noMatch ? 'Nothing to correlate' : '—'}"
+              class="${noMatch ? 'no-correlate' : ''}"
               oninput="reviewRows[${ri}]['p${si}']=this.value" style="width:90px;" /></td>
             <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);" id="tot-${ri}-${si}">
               ${calcTotal(r[`p${si}`], r.qty)}
-            </td>`).join('')}
+            </td>`;
+          }).join('')}
           <td>
             <button onclick="removeReviewRow(${ri})"
               style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px 5px;">
