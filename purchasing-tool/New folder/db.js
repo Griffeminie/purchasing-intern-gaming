@@ -69,51 +69,28 @@ try {
 // ── Suppliers schema ────────────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS suppliers (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    no                TEXT,
+    company           TEXT,
+    category          TEXT,
+    category2         TEXT,
+    old_name          TEXT,
+    current_name      TEXT,
+    contact_name      TEXT,
+    address           TEXT,
+    region            TEXT,
+    contact_details   TEXT,
+    email             TEXT,
+    email2            TEXT,
+    status            TEXT,
+    created_at        TEXT DEFAULT (datetime('now', 'localtime'))
   );
+
+  CREATE INDEX IF NOT EXISTS idx_supplier_company  ON suppliers (company);
+  CREATE INDEX IF NOT EXISTS idx_supplier_region   ON suppliers (region);
+  CREATE INDEX IF NOT EXISTS idx_supplier_category ON suppliers (category);
+  CREATE INDEX IF NOT EXISTS idx_supplier_status   ON suppliers (status);
 `);
-
-// Add any columns that don't exist yet — safe whether the table is brand new
-// (created just above with only `id`) or already existed with a different
-// shape from an earlier version of this app.
-const SUPPLIER_COLUMNS = [
-  ["no",              "TEXT"],
-  ["company",         "TEXT"],
-  ["category",        "TEXT"],
-  ["category2",       "TEXT"],
-  ["old_name",        "TEXT"],
-  ["current_name",    "TEXT"],
-  ["contact_name",    "TEXT"],
-  ["address",         "TEXT"],
-  ["region",          "TEXT"],
-  ["contact_details", "TEXT"],
-  ["email",           "TEXT"],
-  ["email2",          "TEXT"],
-  ["status",          "TEXT"],
-  ["created_at",      "TEXT"],
-];
-for (const [col, type] of SUPPLIER_COLUMNS) {
-  try {
-    db.exec(`ALTER TABLE suppliers ADD COLUMN ${col} ${type}`);
-    console.log(`[db] Added "${col}" column to suppliers table.`);
-  } catch (e) {
-    // Column already exists — expected on every run after the first
-  }
-}
-
-// Indexes — wrapped individually so one failure can't block the others or crash startup
-for (const [name, col] of [
-  ["idx_supplier_company",  "company"],
-  ["idx_supplier_region",   "region"],
-  ["idx_supplier_category", "category"],
-  ["idx_supplier_status",   "status"],
-]) {
-  try {
-    db.exec(`CREATE INDEX IF NOT EXISTS ${name} ON suppliers (${col})`);
-  } catch (e) {
-    console.warn(`[db] Could not create index ${name}:`, e.message);
-  }
-}
 
 
 // ── Helper: Excel row → DB row ────────────────────────────────────────────────
@@ -350,12 +327,10 @@ const stmts = {
   supplierInsert: db.prepare(`
     INSERT INTO suppliers (
       no, company, category, category2, old_name, current_name,
-      contact_name, address, region, contact_details, email, email2, status,
-      created_at
+      contact_name, address, region, contact_details, email, email2, status
     ) VALUES (
       @no, @company, @category, @category2, @old_name, @current_name,
-      @contact_name, @address, @region, @contact_details, @email, @email2, @status,
-      datetime('now', 'localtime')
+      @contact_name, @address, @region, @contact_details, @email, @email2, @status
     )
   `),
 
