@@ -30,7 +30,6 @@ const {
   getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
   deleteSupplier, supplierCount,
 } = require("./db");
-const { buildMonthWorkbook, buildYearWorkbook } = require("./xlsx-template");
 
 const app  = express();
 const PORT = 3000;
@@ -106,17 +105,6 @@ function sendWorkbook(res, wb, filename) {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.send(buf);
-}
-
-// Same as sendWorkbook, but for an exceljs Workbook (used by the template-based
-// monitoring exports in xlsx-template.js, since exceljs preserves formatting
-// that the plain "xlsx" package above can't).
-async function sendExcelJSWorkbook(res, wb, filename) {
-  const buf = await wb.xlsx.writeBuffer();
-  res.setHeader("Content-Type",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.send(Buffer.from(buf));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -312,48 +300,39 @@ app.get("/api/dashboard", (req, res) => {
   }
 });
 
-// ── Export: one month (uses data/monitoring_template.xlsx as the layout) ──────
-app.get("/api/export/month/:month", async (req, res) => {
+// ── Export: one month ─────────────────────────────────────────────────────────
+app.get("/api/export/month/:month", (req, res) => {
   try {
     const month = req.params.month.toUpperCase().trim();
     const rows  = getByMonth(month);
     if (!rows.length) return res.status(404).json({ error: `No data for ${month}` });
 
-    const year = new Date().getFullYear();
-    const wb   = await buildMonthWorkbook(month, year, rows);
-    await sendExcelJSWorkbook(res, wb, `PO_Monitoring_${month}_${year}.xlsx`);
-  } catch (e) {
-    console.error("Month export error:", e);
-    res.status(500).json({ error: e.message });
-  }
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, rowsToSheet(rows), month);
+    sendWorkbook(res, wb, `PO_Monitoring_${month}_${new Date().getFullYear()}.xlsx`);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Export: full year (uses data/monitoring_template.xlsx per month sheet) ────
-app.get("/api/export/year", async (req, res) => {
+// ── Export: full year ─────────────────────────────────────────────────────────
+app.get("/api/export/year", (req, res) => {
   try {
-    const year = new Date().getFullYear();
-    const monthsWithRows = [];
+    const wb = xlsx.utils.book_new();
+    let totalRows = 0;
     for (const month of MONTH_ORDER) {
       const rows = getByMonth(month);
-      if (rows.length) monthsWithRows.push({ month, rows });
+      if (rows.length) {
+        xlsx.utils.book_append_sheet(wb, rowsToSheet(rows), month);
+        totalRows += rows.length;
+      }
     }
-    if (!monthsWithRows.length) return res.status(404).json({ error: "No data to export." });
-
-    const wb = await buildYearWorkbook(monthsWithRows, year);
-
-    const summary = wb.addWorksheet("Summary");
-    summary.addRow([
-      "Month", "No. of PRs", "Processed PO (Served)", "Processed PR (For PO)",
-      "Processed PO (Waiting for Delivery)", "Cancelled PO",
-      "Total PO Created", "Remarks",
-    ]);
-    summary.getRow(1).font = { bold: true };
-
-    await sendExcelJSWorkbook(res, wb, `PO_Monitoring_Full_${year}.xlsx`);
-  } catch (e) {
-    console.error("Year export error:", e);
-    res.status(500).json({ error: e.message });
-  }
+    xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([
+      ["Month","No. of PRs","Processed PO (Served)","Processed PR (For PO)",
+       "Processed PO (Waiting for Delivery)","Cancelled PO",
+       "Total PO Created","Remarks"]
+    ]), "Summary");
+    if (wb.SheetNames.length === 1) return res.status(404).json({ error: "No data to export." });
+    sendWorkbook(res, wb, `PO_Monitoring_Full_${new Date().getFullYear()}.xlsx`);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Export: filtered ──────────────────────────────────────────────────────────

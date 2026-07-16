@@ -497,9 +497,6 @@
         <button class="btn btn-outline" id="export-btn">
           <i data-lucide="download" style="width:13px;height:13px;"></i> Export
         </button>
-        <button class="btn btn-outline" id="import-btn">
-          <i data-lucide="upload" style="width:13px;height:13px;"></i> Import JSON
-        </button>
       </div>
     </div>
 
@@ -567,7 +564,7 @@
               <div class="empty-state">
                 <div class="icon"><i data-lucide="building-2" style="width:40px;height:40px;"></i></div>
                 <h3>No suppliers yet</h3>
-                <p>Click <strong>Import JSON</strong> to load your supplier list.</p>
+                <p>Run <code>node migrate-suppliers.js</code> on the server to load your supplier list.</p>
               </div>
             </td></tr>
           </tbody>
@@ -585,44 +582,6 @@
 
   </main>
 
-  <!-- Import Modal -->
-  <div class="modal-overlay" id="import-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <div class="modal-title">Import Supplier JSON</div>
-        <button class="modal-close" id="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
-      </div>
-
-      <div id="step-upload">
-        <div class="drop-zone" id="drop-zone">
-          <div class="dz-icon"><i data-lucide="file-json-2" style="width:36px;height:36px;"></i></div>
-          <h3>Drop your supplier JSON file here</h3>
-          <p>or click to browse — .json files only<br>Generate this file from the masterlist with <code>xlsx_to_json.py</code></p>
-          <input type="file" id="json-file-input" accept=".json,application/json" style="display:none;" />
-        </div>
-        <div id="import-preview" class="import-preview" style="display:none;"></div>
-      </div>
-
-      <div id="step-map" style="display:none;">
-        <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;">
-          Detected <strong id="detected-rows">0</strong> supplier records<span id="detected-source"></span>. This will replace the current supplier list.
-        </p>
-        <div class="col-mapping" id="col-mapping-fields"></div>
-      </div>
-
-      <div id="step-done" style="display:none;text-align:center;padding:24px 0;">
-        <i data-lucide="check-circle" style="width:48px;height:48px;color:var(--green);margin-bottom:12px;"></i>
-        <h3 style="font-size:16px;color:var(--text);margin-bottom:6px;">Import Successful</h3>
-        <p style="font-size:13px;color:var(--text-2);" id="done-msg"></p>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn btn-outline" id="modal-cancel">Cancel</button>
-        <button class="btn btn-primary" id="modal-next" disabled>Next →</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     lucide.createIcons();
 
@@ -633,10 +592,6 @@
     let sortDir      = 1; // 1=asc, -1=desc
     let currentPage  = 1;
     const PAGE_SIZE  = 50;
-
-    let jsonRecords = [];
-    let jsonMeta     = {};
-    let importStep   = 'upload'; // upload → preview → done
 
     const FIELD_LABELS = {
       NO:              'No',
@@ -858,7 +813,7 @@
           <div class="empty-state">
             <div class="icon"><i data-lucide="search" style="width:36px;height:36px;"></i></div>
             <h3>${allSuppliers.length ? 'No results' : 'No suppliers yet'}</h3>
-            <p>${allSuppliers.length ? 'Try adjusting your search or filters.' : 'Click <strong>Import JSON</strong> to load your supplier list.'}</p>
+            <p>${allSuppliers.length ? 'Try adjusting your search or filters.' : 'Run <code>node migrate-suppliers.js</code> on the server to load your supplier list.'}</p>
           </div>
         </td></tr>`;
         lucide.createIcons();
@@ -979,144 +934,6 @@
       URL.revokeObjectURL(url);
     });
 
-    // ── Import Modal ───────────────────────────────────────────────────────────
-    const importModal  = document.getElementById('import-modal');
-    const dropZone     = document.getElementById('drop-zone');
-    const fileInput    = document.getElementById('json-file-input');
-    const modalNext    = document.getElementById('modal-next');
-
-    document.getElementById('import-btn').addEventListener('click', openModal);
-    document.getElementById('modal-close').addEventListener('click', closeModal);
-    document.getElementById('modal-cancel').addEventListener('click', closeModal);
-
-    function openModal() {
-      importStep = 'upload';
-      jsonRecords = []; jsonMeta = {};
-      document.getElementById('step-upload').style.display = '';
-      document.getElementById('step-map').style.display    = 'none';
-      document.getElementById('step-done').style.display   = 'none';
-      document.getElementById('import-preview').style.display = 'none';
-      document.getElementById('import-preview').innerHTML     = '';
-      fileInput.value = '';
-      modalNext.textContent = 'Next →';
-      modalNext.disabled = true;
-      modalNext.style.display = '';
-      document.getElementById('modal-cancel').textContent = 'Cancel';
-      importModal.classList.add('open');
-      lucide.createIcons();
-    }
-
-    function closeModal() {
-      importModal.classList.remove('open');
-    }
-
-    // Drop zone
-    dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-    dropZone.addEventListener('drop', e => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
-    });
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) handleFile(fileInput.files[0]);
-    });
-
-    function handleFile(file) {
-      if (!file.name.toLowerCase().endsWith('.json')) { alert('Please select a .json file.'); return; }
-      const reader = new FileReader();
-      reader.onload = e => {
-        try {
-          parseSupplierJSON(e.target.result);
-        } catch (err) {
-          alert('Could not read that file as supplier JSON:\n' + err.message);
-        }
-      };
-      reader.readAsText(file);
-    }
-
-    function parseSupplierJSON(text) {
-      const data = JSON.parse(text);
-
-      // Accept either { suppliers: [...] } (output of xlsx_to_json.py) or a raw array
-      const rawList = Array.isArray(data) ? data : data.suppliers;
-      if (!Array.isArray(rawList)) {
-        throw new Error('Expected a "suppliers" array (or a top-level array) of records.');
-      }
-
-      const fieldKeys = Object.keys(FIELD_LABELS);
-      jsonRecords = rawList.map((row, i) => {
-        const obj = {};
-        fieldKeys.forEach(field => { obj[field] = row[field] != null ? String(row[field]) : ''; });
-        if (!obj.NO) obj.NO = String(i + 1);
-        return obj;
-      });
-
-      jsonMeta = {
-        source_file: data.source_file || '',
-        generated_at: data.generated_at || '',
-      };
-
-      // Preview
-      const preview = document.getElementById('import-preview');
-      preview.style.display = '';
-      const previewRows = jsonRecords.slice(0, 5);
-      preview.innerHTML = `<div class="preview-row" style="color:var(--accent-2);font-weight:600;">${fieldKeys.map(f => FIELD_LABELS[f]).join(' | ')}</div>` +
-        previewRows.map(r => `<div class="preview-row">${fieldKeys.map(f => r[f]).join(' | ')}</div>`).join('') +
-        (jsonRecords.length > 5 ? `<div class="preview-row" style="color:var(--text-3);">… and ${jsonRecords.length - 5} more rows</div>` : '');
-
-      modalNext.disabled = false;
-      lucide.createIcons();
-    }
-
-    // Next button logic
-    modalNext.addEventListener('click', () => {
-      if (importStep === 'upload') {
-        showPreviewStep();
-      } else if (importStep === 'map') {
-        doImport();
-      }
-    });
-
-    function showPreviewStep() {
-      importStep = 'map';
-      document.getElementById('step-upload').style.display = 'none';
-      document.getElementById('step-map').style.display    = '';
-      document.getElementById('detected-rows').textContent = jsonRecords.length;
-      document.getElementById('detected-source').textContent =
-        jsonMeta.source_file ? ` from ${jsonMeta.source_file}${jsonMeta.generated_at ? ' (generated ' + jsonMeta.generated_at + ')' : ''}` : '';
-
-      const fieldKeys = Object.keys(FIELD_LABELS);
-      const sample = jsonRecords.slice(0, 5);
-      const container = document.getElementById('col-mapping-fields');
-      container.innerHTML = `
-        <div class="import-preview" style="max-height:200px;">
-          <div class="preview-row" style="color:var(--accent-2);font-weight:600;">${fieldKeys.map(f => FIELD_LABELS[f]).join(' | ')}</div>
-          ${sample.map(r => `<div class="preview-row">${fieldKeys.map(f => r[f] || '').join(' | ')}</div>`).join('')}
-        </div>
-      `;
-
-      modalNext.textContent = 'Import →';
-    }
-
-    function doImport() {
-      allSuppliers = jsonRecords;
-      saveSuppliers(allSuppliers);
-      updateStats();
-      populateFilters();
-      applyFilters();
-
-      // Done step
-      importStep = 'done';
-      document.getElementById('step-map').style.display  = 'none';
-      document.getElementById('step-done').style.display = '';
-      document.getElementById('done-msg').textContent    = `${allSuppliers.length} suppliers imported successfully.`;
-      modalNext.style.display   = 'none';
-      document.getElementById('modal-cancel').textContent = 'Close';
-      lucide.createIcons();
-    }
     // ── Column toggle ──────────────────────────────────────────────────────────
     const colsBtn      = document.getElementById('cols-btn');
     const colsDropdown = document.getElementById('cols-dropdown');
