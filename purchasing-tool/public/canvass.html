@@ -528,8 +528,10 @@ Rules:
 - contactPerson: the name of the person to contact (signatory, sales rep, prepared-by, etc.), if printed on the document.
 - contactNumber: a phone/mobile number associated with the supplier or contact person, if printed on the document.
 - Do not invent values. If a value cannot be found, use an empty string "" — never guess or fabricate a name, address, or number.
+- NEVER perform arithmetic or derive a number that is not itself printed on the document. This applies especially to "vat", "grandTotal", "deliveryCharge", and "discount" — if the document only says a word or phrase like "VAT INCLUSIVE", "STANDARD RATE", "12%", or "FREE" with no specific peso figure next to it, output that exact phrase as plain text. Do NOT calculate what 12% of some other number would be, do NOT back-compute a VAT amount from a grand total, and do NOT fill in a number that "should" be there. Only output a numeric value for these fields if that exact number is visibly printed on the document.
 - Output plain human-readable text only. Never include special/control tokens such as <bos>, <eos>, <pad>, <unk>, <start_of_turn>, <end_of_turn> or any other bracketed tokens anywhere in a value.
 - Return ONLY JSON. No markdown. No explanations. No code blocks.
+- itemNo: always output an empty string "" for this field, no matter what. Some documents have a leading number column that looks like an item index but is actually something else (a quantity, a product code, a reference ID) depending on the layout — you cannot reliably tell them apart, so don't try. Item numbering is assigned separately by the system, not extracted by you.
 `;
 
 const ITEM_MATCH_PROMPT = `
@@ -800,7 +802,7 @@ const retryBtn = f.status === 'error'
 
       const items = (result.items || []).map((it, i) => ({
         id:          `s${id}i${++itemIdCounter}`,
-        itemNo:      it.itemNo      || String(i + 1),
+        itemNo:      String(i + 1),  // always system-assigned by position, never AI-extracted — see matchItemsAcrossSuppliers for renumbering after cross-supplier sort
         description: it.description || '',
         qty:         it.qty         || '1',
         unit:        it.unit        || 'pce',
