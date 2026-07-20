@@ -27,7 +27,10 @@ console.log(`[Python] Using command: ${PYTHON_CMD}`);
 const {
   insertRow, updateRow, updateRowFile, deleteRow,
   getByMonth, getMonths, findByPoNumber, buildDashboard, db,
+  getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
+  deleteSupplier, supplierCount,
 } = require("./db");
+const { buildMonthWorkbook, buildYearWorkbook } = require("./xlsx-template");
 
 const app  = express();
 const PORT = 3000;
@@ -190,6 +193,17 @@ function sendWorkbook(res, wb, filename) {
   res.send(buf);
 }
 
+// Same as sendWorkbook, but for an exceljs Workbook (used by the template-based
+// monitoring exports in xlsx-template.js, since exceljs preserves formatting
+// that the plain "xlsx" package above can't).
+async function sendExcelJSWorkbook(res, wb, filename) {
+  const buf = await wb.xlsx.writeBuffer();
+  res.setHeader("Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(Buffer.from(buf));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // API ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -223,21 +237,14 @@ app.post("/api/gemini/match", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Suppliers — persisted in SQLite (mirrors the monitoring data pattern) ─────
 app.get("/api/suppliers", (req, res) => {
-  const filePath = path.join(__dirname, "data", "suppliers.json");
-  console.log(`[Suppliers] Request received. Looking for: ${filePath}`);
   try {
-    if (!fs.existsSync(filePath)) {
-      console.warn(`[Suppliers] FILE NOT FOUND at ${filePath}`);
-      return res.json({ suppliers: [] });
-    }
-    const raw = fs.readFileSync(filePath, "utf8");
-    const data = JSON.parse(raw);
-    const count = Array.isArray(data) ? data.length : (data.suppliers || []).length;
-    console.log(`[Suppliers] Loaded ${count} records`);
-    res.json(data);
+    const suppliers = getAllSuppliers();
+    console.log(`[Suppliers] Loaded ${suppliers.length} records from SQLite`);
+    res.json({ suppliers });
   } catch (e) {
-    console.error("[Suppliers] ERROR reading/parsing suppliers.json:", e.message);
+    console.error("[Suppliers] ERROR reading from SQLite:", e.message);
     res.status(500).json({ suppliers: [], error: e.message });
   }
 });
@@ -262,6 +269,44 @@ app.get("/api/canvass/books", (req, res) => {
   }
 });
 
+// Bulk import — replaces the whole supplier list. Accepts { suppliers: [...] }
+// or a raw array, same shape the front-end's "Import JSON" flow already parses.
+app.post("/api/suppliers/import", (req, res) => {
+  try {
+    const body = req.body || {};
+    const list = Array.isArray(body) ? body : body.suppliers;
+    if (!Array.isArray(list)) {
+      return res.status(400).json({ error: 'Expected a "suppliers" array (or a top-level array) of records.' });
+    }
+    const count = importSuppliers(list);
+    console.log(`[Suppliers] Imported ${count} records into SQLite`);
+    res.json({ success: true, count });
+  } catch (e) {
+    console.error("[Suppliers] ERROR importing:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/supplier", (req, res) => {
+  try {
+    const id = insertSupplier(req.body);
+    res.json({ success: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put("/api/supplier/:id", (req, res) => {
+  try {
+    updateSupplier(parseInt(req.params.id), req.body);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/api/supplier/:id", (req, res) => {
+  try {
+    deleteSupplier(parseInt(req.params.id));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/sheets", (req, res) => {
   try {
     res.json({ sheets: getMonths() });
@@ -378,39 +423,48 @@ app.get("/api/dashboard", (req, res) => {
   }
 });
 
-// ── Export: one month ─────────────────────────────────────────────────────────
-app.get("/api/export/month/:month", (req, res) => {
+// ── Export: one month (uses data/monitoring_template.xlsx as the layout) ──────
+app.get("/api/export/month/:month", async (req, res) => {
   try {
     const month = req.params.month.toUpperCase().trim();
     const rows  = getByMonth(month);
     if (!rows.length) return res.status(404).json({ error: `No data for ${month}` });
 
-    const wb = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(wb, rowsToSheet(rows), month);
-    sendWorkbook(res, wb, `PO_Monitoring_${month}_${new Date().getFullYear()}.xlsx`);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const year = new Date().getFullYear();
+    const wb   = await buildMonthWorkbook(month, year, rows);
+    await sendExcelJSWorkbook(res, wb, `PO_Monitoring_${month}_${year}.xlsx`);
+  } catch (e) {
+    console.error("Month export error:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// ── Export: full year ─────────────────────────────────────────────────────────
-app.get("/api/export/year", (req, res) => {
+// ── Export: full year (uses data/monitoring_template.xlsx per month sheet) ────
+app.get("/api/export/year", async (req, res) => {
   try {
-    const wb = xlsx.utils.book_new();
-    let totalRows = 0;
+    const year = new Date().getFullYear();
+    const monthsWithRows = [];
     for (const month of MONTH_ORDER) {
       const rows = getByMonth(month);
-      if (rows.length) {
-        xlsx.utils.book_append_sheet(wb, rowsToSheet(rows), month);
-        totalRows += rows.length;
-      }
+      if (rows.length) monthsWithRows.push({ month, rows });
     }
-    xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([
-      ["Month","No. of PRs","Processed PO (Served)","Processed PR (For PO)",
-       "Processed PO (Waiting for Delivery)","Cancelled PO",
-       "Total PO Created","Remarks"]
-    ]), "Summary");
-    if (wb.SheetNames.length === 1) return res.status(404).json({ error: "No data to export." });
-    sendWorkbook(res, wb, `PO_Monitoring_Full_${new Date().getFullYear()}.xlsx`);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    if (!monthsWithRows.length) return res.status(404).json({ error: "No data to export." });
+
+    const wb = await buildYearWorkbook(monthsWithRows, year);
+
+    const summary = wb.addWorksheet("Summary");
+    summary.addRow([
+      "Month", "No. of PRs", "Processed PO (Served)", "Processed PR (For PO)",
+      "Processed PO (Waiting for Delivery)", "Cancelled PO",
+      "Total PO Created", "Remarks",
+    ]);
+    summary.getRow(1).font = { bold: true };
+
+    await sendExcelJSWorkbook(res, wb, `PO_Monitoring_Full_${year}.xlsx`);
+  } catch (e) {
+    console.error("Year export error:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Export: filtered ──────────────────────────────────────────────────────────

@@ -66,6 +66,56 @@ try {
   // Column already exists — this is expected on fresh installs
 }
 
+// ── Suppliers schema ────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS suppliers (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT
+  );
+`);
+
+// Add any columns that don't exist yet — safe whether the table is brand new
+// (created just above with only `id`) or already existed with a different
+// shape from an earlier version of this app.
+const SUPPLIER_COLUMNS = [
+  ["no",              "TEXT"],
+  ["company",         "TEXT"],
+  ["category",        "TEXT"],
+  ["category2",       "TEXT"],
+  ["old_name",        "TEXT"],
+  ["current_name",    "TEXT"],
+  ["contact_name",    "TEXT"],
+  ["address",         "TEXT"],
+  ["region",          "TEXT"],
+  ["contact_details", "TEXT"],
+  ["email",           "TEXT"],
+  ["email2",          "TEXT"],
+  ["status",          "TEXT"],
+  ["created_at",      "TEXT"],
+];
+for (const [col, type] of SUPPLIER_COLUMNS) {
+  try {
+    db.exec(`ALTER TABLE suppliers ADD COLUMN ${col} ${type}`);
+    console.log(`[db] Added "${col}" column to suppliers table.`);
+  } catch (e) {
+    // Column already exists — expected on every run after the first
+  }
+}
+
+// Indexes — wrapped individually so one failure can't block the others or crash startup
+for (const [name, col] of [
+  ["idx_supplier_company",  "company"],
+  ["idx_supplier_region",   "region"],
+  ["idx_supplier_category", "category"],
+  ["idx_supplier_status",   "status"],
+]) {
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS ${name} ON suppliers (${col})`);
+  } catch (e) {
+    console.warn(`[db] Could not create index ${name}:`, e.message);
+  }
+}
+
+
 // ── Helper: Excel row → DB row ────────────────────────────────────────────────
 function excelRowToDb(row, month) {
   return {
@@ -129,6 +179,46 @@ function dbRowToApi(row) {
     "TOTAL COST SAVINGS":     row.total_cost_savings,
     "PO FILE":                row.po_file || "",
     "created_at":             row.created_at,
+  };
+}
+
+// ── Helper: supplier API row → DB row ─────────────────────────────────────────
+function supplierRowToDb(row, i) {
+  return {
+    no:              String(row["NO"] ?? (i != null ? i + 1 : "")),
+    company:         row["COMPANY"]         || "",
+    category:        row["CATEGORY"]        || "",
+    category2:       row["CATEGORY2"]       || "",
+    old_name:        row["OLD_NAME"]        || "",
+    current_name:    row["CURRENT_NAME"]    || "",
+    contact_name:    row["CONTACT_NAME"]    || "",
+    address:         row["ADDRESS"]         || "",
+    region:          row["REGION"]          || "",
+    contact_details: row["CONTACT_DETAILS"] || "",
+    email:           row["EMAIL"]           || "",
+    email2:          row["EMAIL2"]          || "",
+    status:          row["STATUS"]          || "",
+  };
+}
+
+// ── Helper: supplier DB row → API object ──────────────────────────────────────
+function dbRowToSupplierApi(row) {
+  return {
+    id:              row.id,
+    NO:              row.no,
+    COMPANY:         row.company,
+    CATEGORY:        row.category,
+    CATEGORY2:       row.category2,
+    OLD_NAME:        row.old_name,
+    CURRENT_NAME:    row.current_name,
+    CONTACT_NAME:    row.contact_name,
+    ADDRESS:         row.address,
+    REGION:          row.region,
+    CONTACT_DETAILS: row.contact_details,
+    EMAIL:           row.email,
+    EMAIL2:          row.email2,
+    STATUS:          row.status,
+    created_at:      row.created_at,
   };
 }
 
@@ -255,6 +345,33 @@ const stmts = {
   `),
 
   rowCount: db.prepare(`SELECT COUNT(*) AS cnt FROM purchase_orders`),
+
+  // ── Suppliers ──────────────────────────────────────────────────────────────
+  supplierInsert: db.prepare(`
+    INSERT INTO suppliers (
+      no, company, category, category2, old_name, current_name,
+      contact_name, address, region, contact_details, email, email2, status,
+      created_at
+    ) VALUES (
+      @no, @company, @category, @category2, @old_name, @current_name,
+      @contact_name, @address, @region, @contact_details, @email, @email2, @status,
+      datetime('now', 'localtime')
+    )
+  `),
+
+  supplierUpdate: db.prepare(`
+    UPDATE suppliers SET
+      no = @no, company = @company, category = @category, category2 = @category2,
+      old_name = @old_name, current_name = @current_name, contact_name = @contact_name,
+      address = @address, region = @region, contact_details = @contact_details,
+      email = @email, email2 = @email2, status = @status
+    WHERE id = @id
+  `),
+
+  supplierDelete: db.prepare(`DELETE FROM suppliers WHERE id = ?`),
+  supplierDeleteAll: db.prepare(`DELETE FROM suppliers`),
+  supplierAll: db.prepare(`SELECT * FROM suppliers ORDER BY CAST(no AS INTEGER) ASC, id ASC`),
+  supplierCount: db.prepare(`SELECT COUNT(*) AS cnt FROM suppliers`),
 };
 
 // ── Exported query functions ──────────────────────────────────────────────────
@@ -340,5 +457,44 @@ function buildDashboard() {
   };
 }
 
+// ── Supplier query functions ───────────────────────────────────────────────────
+
+function getAllSuppliers() {
+  return stmts.supplierAll.all().map(dbRowToSupplierApi);
+}
+
+// Bulk replace — used by the "Import JSON" flow and the migrate-suppliers.js script.
+// Wipes the table and inserts the given list in one transaction (atomic: all or nothing).
+function importSuppliers(list) {
+  const run = db.transaction((rows) => {
+    stmts.supplierDeleteAll.run();
+    try { db.prepare("DELETE FROM sqlite_sequence WHERE name='suppliers'").run(); } catch(e) {}
+    rows.forEach((row, i) => stmts.supplierInsert.run(supplierRowToDb(row, i)));
+  });
+  run(list);
+  return list.length;
+}
+
+function insertSupplier(row) {
+  const dbRow = supplierRowToDb(row);
+  const info = stmts.supplierInsert.run(dbRow);
+  return info.lastInsertRowid;
+}
+
+function updateSupplier(id, row) {
+  const dbRow = { ...supplierRowToDb(row), id };
+  stmts.supplierUpdate.run(dbRow);
+}
+
+function deleteSupplier(id) {
+  stmts.supplierDelete.run(id);
+}
+
+function supplierCount() {
+  return stmts.supplierCount.get().cnt;
+}
+
 module.exports = { db, insertRow, insertMany, updateRow, updateRowFile,
-                   deleteRow, getByMonth, getMonths, findByPoNumber, buildDashboard };
+                   deleteRow, getByMonth, getMonths, findByPoNumber, buildDashboard,
+                   getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
+                   deleteSupplier, supplierCount };
