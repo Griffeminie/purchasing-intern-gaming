@@ -32,6 +32,91 @@ const {
 const app  = express();
 const PORT = 3000;
 
+// ── Canvass workbook directory ────────────────────────────────────────────────
+const CANVASS_DIR = "X:\\NEW PURCHASING TEAM\\CANVASS SHEET";
+
+// ── Gemini config (server-side only — never sent to the browser) ────────────
+const GEMINI_MODEL = "gemini-2.5-flash-lite";
+function getGeminiKey() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "config.json"), "utf8"));
+    return cfg.GEMINI_API_KEY || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+const EXTRACT_PROMPT = `
+You are extracting information from a supplier quotation document.
+Return ONLY valid JSON with EXACTLY this structure — no markdown, no backticks, no explanations:
+
+{
+  "supplierName": "",
+  "location": "",
+  "contactPerson": "",
+  "contactNumber": "",
+  "items": [
+    { "itemNo": "", "description": "", "qty": "", "unit": "", "unitPrice": "", "total": "" }
+  ],
+  "deliveryCharge": "",
+  "discount": "",
+  "grandTotal": "",
+  "creditTerms": "",
+  "vat": "",
+  "availability": "",
+  "deliveryAddress": ""
+}
+
+Rules:
+- Extract every line item. Preserve text exactly as written.
+- supplierName: the company/business name issuing the quotation.
+- location: the SUPPLIER's own business address/city, usually printed in the letterhead near the supplier name or logo. This is different from deliveryAddress (the customer's delivery address, usually printed lower in the document).
+- contactPerson: the name of the person to contact (signatory, sales rep, prepared-by, etc.), if printed on the document.
+- contactNumber: a phone/mobile number associated with the supplier or contact person, if printed on the document.
+- Do not invent values. If a value cannot be found, use an empty string "" — never guess or fabricate a name, address, or number.
+- NEVER perform arithmetic or derive a number that is not itself printed on the document. This applies especially to "vat", "grandTotal", "deliveryCharge", and "discount" — if the document only says a word or phrase like "VAT INCLUSIVE", "STANDARD RATE", "12%", or "FREE" with no specific peso figure next to it, output that exact phrase as plain text. Do NOT calculate what 12% of some other number would be, do NOT back-compute a VAT amount from a grand total, and do NOT fill in a number that "should" be there. Only output a numeric value for these fields if that exact number is visibly printed on the document.
+- Output plain human-readable text only. Never include special/control tokens such as <bos>, <eos>, <pad>, <unk>, <start_of_turn>, <end_of_turn> or any other bracketed tokens anywhere in a value.
+- Return ONLY JSON. No markdown. No explanations. No code blocks.
+- itemNo: always output an empty string "" for this field, no matter what. Some documents have a leading number column that looks like an item index but is actually something else (a quantity, a product code, a reference ID) depending on the layout — you cannot reliably tell them apart, so don't try. Item numbering is assigned separately by the system, not extracted by you.
+`;
+
+const MATCH_PROMPT = `
+You are given items from MULTIPLE supplier quotations for the SAME canvass request.
+Different suppliers describe the same physical product differently
+(e.g. "BATTERY EVEREADY AA", "BATTERY AA ENERGIZER", "GP ULTRA AA (4 PCS) ALKALINE BATTERY"
+are all the same product: AA batteries).
+
+Group items that refer to the SAME physical product/spec across suppliers, even if brand,
+wording, or order differs. Do NOT group genuinely different products or specs
+(e.g. different paper sizes, different column counts on notebooks).
+
+For each group, pick ONE short, generic, brand-neutral canonical name (no brand names,
+no supplier item codes), e.g. "BATTERY AA", "BOND PAPER SHORT 70GSM", "WHITE FOLDER LONG",
+"COLUMNAR NOTEBOOK 8 COLUMN".
+
+Return ONLY valid JSON, no markdown, no explanations, in exactly this structure:
+[
+  { "canonicalName": "BATTERY AA", "itemIds": ["s1i3","s2i7","s3i1"] }
+]
+
+Every item id in the input must appear in exactly one group. If an item has no match,
+put it alone in its own group with a clean canonical name.
+
+Items:
+`;
+
+async function callGeminiRaw(payload) {
+  const key = getGeminiKey();
+  if (!key) throw new Error("Gemini API key not configured on server");
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  return data;
+}
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "20mb" }));
 
@@ -109,26 +194,33 @@ function sendWorkbook(res, wb, filename) {
 // API ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── Config: serve Gemini API key to frontend (never commit data/config.json) ──
+// ── Config: tell frontend whether AI is ready — key itself never leaves the server ──
 app.get("/api/config", (req, res) => {
-  const configPath = path.join(__dirname, "data", "config.json");
-  console.log(`[Config] Request received. Looking for: ${configPath}`);
+  res.json({ aiReady: !!getGeminiKey() });
+});
+
+// ── Gemini: extract one quotation ─────────────────────────────────────────────
+app.post("/api/gemini/extract", async (req, res) => {
   try {
-    if (!fs.existsSync(configPath)) {
-      console.warn(`[Config] FILE NOT FOUND at ${configPath}`);
-      return res.json({ GEMINI_API_KEY: "" });
-    }
-    const raw = fs.readFileSync(configPath, "utf8");
-    console.log(`[Config] File found, ${raw.length} bytes read`);
-    const cfg = JSON.parse(raw);
-    console.log(`[Config] Parsed keys present: ${Object.keys(cfg).join(", ") || "(none)"}`);
-    const key = cfg.GEMINI_API_KEY || "";
-    console.log(`[Config] GEMINI_API_KEY length: ${key.length} (${key ? "present" : "EMPTY"})`);
-    res.json({ GEMINI_API_KEY: key });
-  } catch (e) {
-    console.error("[Config] ERROR reading/parsing config.json:", e.message);
-    res.status(500).json({ GEMINI_API_KEY: "", error: e.message });
-  }
+    const { mimeType, base64 } = req.body;
+    if (!mimeType || !base64) return res.status(400).json({ error: "mimeType and base64 required" });
+    const data = await callGeminiRaw({
+      contents: [{ parts: [{ text: EXTRACT_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+    });
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Gemini: match items across suppliers ──────────────────────────────────────
+app.post("/api/gemini/match", async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!items) return res.status(400).json({ error: "items required" });
+    const data = await callGeminiRaw({
+      contents: [{ parts: [{ text: MATCH_PROMPT + JSON.stringify(items, null, 2) }] }],
+    });
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/api/suppliers", (req, res) => {
@@ -147,6 +239,26 @@ app.get("/api/suppliers", (req, res) => {
   } catch (e) {
     console.error("[Suppliers] ERROR reading/parsing suppliers.json:", e.message);
     res.status(500).json({ suppliers: [], error: e.message });
+  }
+});
+
+// ── List existing department canvass workbooks ────────────────────────────────
+// GET /api/canvass/books
+// Returns the .xlsx files sitting in CANVASS_DIR so the frontend can offer
+// them as a dropdown instead of the user typing a path.
+app.get("/api/canvass/books", (req, res) => {
+  try {
+    if (!fs.existsSync(CANVASS_DIR)) {
+      console.warn(`[Canvass Books] Directory not found: ${CANVASS_DIR}`);
+      return res.json({ books: [], error: `Directory not found: ${CANVASS_DIR}` });
+    }
+    const files = fs.readdirSync(CANVASS_DIR)
+      .filter(f => f.toLowerCase().endsWith(".xlsx") && !f.startsWith("~$")) // skip Excel lock files
+      .sort((a, b) => a.localeCompare(b));
+    res.json({ books: files });
+  } catch (e) {
+    console.error("[Canvass Books] ERROR:", e.message);
+    res.status(500).json({ books: [], error: e.message });
   }
 });
 
@@ -344,29 +456,76 @@ app.post("/api/upload-scan", upload.single("image"), (req, res) => {
 });
 
 // ── Canvass export (Python) ───────────────────────────────────────────────────
+// Two modes, chosen by whether the request includes "targetBook":
+//   - No targetBook: build a standalone .xlsx and send it back for download
+//     (original behaviour).
+//   - targetBook set: it's an absolute path to an existing department
+//     workbook (can live anywhere on disk / a shared folder, not just
+//     data/) — the new canvass gets appended to it as the LAST sheet and
+//     the file is updated IN PLACE. Nothing is downloaded in this mode.
 app.post("/api/canvass/export", async (req, res) => {
   const { execFile } = require("child_process");
+  const { targetBook, sheetName, ...canvassData } = req.body;
+
+  const appendMode = !!(targetBook && String(targetBook).trim());
+  let resolvedTarget = null;
+
+  if (appendMode) {
+    const fileName = String(targetBook).trim();
+    // Only a bare filename is accepted from the client — always resolved
+    // against CANVASS_DIR server-side, never an arbitrary path, and
+    // blocked from escaping that folder (no slashes/backslashes/"..").
+    if (/[\\/]/.test(fileName) || fileName.includes("..")) {
+      return res.status(400).json({ error: "Invalid file name." });
+    }
+    resolvedTarget = path.join(CANVASS_DIR, fileName);
+    if (!fs.existsSync(resolvedTarget)) {
+      return res.status(404).json({ error: `Workbook not found: ${resolvedTarget}` });
+    }
+  }
+
   const tmpJson = path.join(os.tmpdir(), `canvass_${Date.now()}.json`);
-  const outFile = path.join(__dirname, "data", `Canvass_${Date.now()}.xlsx`);
+  // Scratch file used ONLY to build the single new sheet — never the same
+  // path as resolvedTarget, so the department book is never touched until
+  // canvass_fill.py explicitly opens it to append + save in place.
+  const scratchOut = appendMode
+    ? path.join(os.tmpdir(), `canvass_scratch_${Date.now()}.xlsx`)
+    : path.join(__dirname, "data", `Canvass_${Date.now()}.xlsx`);
+
   try {
-    fs.writeFileSync(tmpJson, JSON.stringify(req.body));
+    fs.writeFileSync(tmpJson, JSON.stringify(canvassData));
+
+    const args = [
+      path.join(__dirname, "canvass_fill.py"),
+      tmpJson,
+      path.join(__dirname, "data", "TEMP.xlsx"),
+      scratchOut,
+    ];
+    if (appendMode) {
+      args.push(resolvedTarget);
+      args.push(sheetName || canvassData.title || "Canvass");
+    }
+
     await new Promise((resolve, reject) => {
-      execFile(PYTHON_CMD, [
-        path.join(__dirname, "canvass_fill.py"),
-        tmpJson,
-        path.join(__dirname, "data", "TEMP.xlsx"),
-        outFile,
-      ], (err, stdout, stderr) => {
+      execFile(PYTHON_CMD, args, (err, stdout, stderr) => {
         if (err) { return reject(new Error(stderr || err.message)); }
         resolve();
       });
     });
     fs.unlinkSync(tmpJson);
-    res.download(outFile, `Canvass_${Date.now()}.xlsx`, err => {
-      try { fs.unlinkSync(outFile); } catch(e) {}
-    });
+
+    if (appendMode) {
+      try { fs.unlinkSync(scratchOut); } catch(e) {}
+      console.log(`[Canvass] Appended sheet "${sheetName || canvassData.title}" to ${resolvedTarget}`);
+      res.json({ success: true, appendedTo: resolvedTarget, sheet: sheetName || canvassData.title || "Canvass" });
+    } else {
+      res.download(scratchOut, `Canvass_${Date.now()}.xlsx`, err => {
+        try { fs.unlinkSync(scratchOut); } catch(e) {}
+      });
+    }
   } catch (e) {
     try { fs.unlinkSync(tmpJson); } catch(_) {}
+    try { if (appendMode) fs.unlinkSync(scratchOut); } catch(_) {}
     res.status(500).json({ error: e.message });
   }
 });

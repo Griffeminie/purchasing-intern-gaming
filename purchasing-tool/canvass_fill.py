@@ -5,9 +5,8 @@ Copies the template, inserts item rows, fills summary fields, saves new file.
 
 Usage: python3 canvass_fill.py <data.json> <template.xlsx> <output.xlsx>
 """
-
-import sys, json, shutil, copy
-from openpyxl import load_workbook
+import sys, json, shutil, copy, re, os
+from openpyxl import load_workbook, Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.styles.borders import Border, Side
@@ -186,6 +185,58 @@ def ensure_supplier_blocks(ws, n_suppliers, bottom_row):
             ws.merge_cells(start_row=r, start_column=dst_start,
                             end_row=r,   end_column=dst_start + SUP_COL_WIDTH - 1)
 
+def remove_supplier_block(ws, idx):
+    """Completely removes one supplier's 3-column price block (used when
+    n_sup == 1, so we don't ship a permanently-empty 'SUPPLIER 2' block).
+    Deletes the 3 columns, drops any merge that lived entirely inside them
+    (e.g. N21:P21 — supplier 2's own summary cells), shifts merges to the
+    right of the block left by 3, and SHRINKS any banner merge that spanned
+    across the block (title bar K2:P6, 'SUPPLIER QUOTATION' header G9:P9/
+    G10:P10, 'NOTHING FOLLOWS' A20:P20, etc) so it still reaches the new
+    last column and stays centered on the new width, instead of leaving a
+    dangling 3-column gap or a merge that no longer matches real cells."""
+    start, _, _ = supplier_cols(idx)
+    delete_at, n_cols = start, SUP_COL_WIDTH
+    delete_end = delete_at + n_cols - 1
+
+    def map_col(c):
+        if c < delete_at:
+            return c
+        if c > delete_end:
+            return c - n_cols
+        return None  # falls inside the removed block
+
+    old_ranges = [(mc.min_row, mc.min_col, mc.max_row, mc.max_col)
+                  for mc in ws.merged_cells.ranges]
+
+    for mc in list(ws.merged_cells.ranges):
+        ws.unmerge_cells(start_row=mc.min_row, start_column=mc.min_col,
+                          end_row=mc.max_row, end_column=mc.max_col)
+
+    # openpyxl doesn't re-key column_dimensions (widths) on delete_cols, so
+    # columns to the right of the gap would otherwise keep their OLD width.
+    # Capture widths before deleting, then re-apply shifted.
+    old_widths = {}
+    for c in range(1, 30):
+        letter = get_column_letter(c)
+        if letter in ws.column_dimensions:
+            old_widths[c] = ws.column_dimensions[letter].width
+
+    ws.delete_cols(delete_at, amount=n_cols)
+
+    for c in range(delete_at, 30):
+        src_c = c + n_cols
+        if src_c in old_widths:
+            ws.column_dimensions[get_column_letter(c)].width = old_widths[src_c]
+
+    for (r1, c1, r2, c2) in old_ranges:
+        mapped = [m for m in (map_col(c) for c in range(c1, c2 + 1)) if m is not None]
+        if not mapped:
+            continue  # merge lived entirely inside the removed block — drop it
+        new_c1, new_c2 = min(mapped), max(mapped)
+        if new_c1 == new_c2 and r1 == r2:
+            continue  # collapsed to a single cell — nothing to merge
+        ws.merge_cells(start_row=r1, start_column=new_c1, end_row=r2, end_column=new_c2)
 
 def to_number(val):
     """Best-effort parse into a real float. Returns None if it isn't a number
@@ -195,16 +246,90 @@ def to_number(val):
         return None
     if isinstance(val, (int, float)):
         return val
-    s = str(val).replace(",", "").strip()
+    s = str(val).strip()
+    if s == "":
+        return None
+    # Strip currency symbols/labels (₱, P, PHP, Php) and thousands separators
+    # before parsing — raw extracted values look like "P 4,550.00" and would
+    # otherwise fail float() and silently return None (this was the bug
+    # behind unit prices vanishing on some quotations but not others).
+    s = re.sub(r"(?i)^(php|₱|p)\s*", "", s)
+    s = s.replace(",", "").strip()
     if s == "":
         return None
     try:
         return float(s)
     except ValueError:
         return None
+    
+def sanitize_sheet_name(name):
+    """Excel sheet names: max 31 chars, can't contain : \\ / ? * [ ]."""
+    for ch in r'[]:\/?*':
+        name = name.replace(ch, '-')
+    name = name.strip() or 'Canvass'
+    return name[:31]
+
+
+def unique_sheet_name(wb, name):
+    """Avoids clobbering an existing tab with the same name — e.g. two
+    HR canvasses both titled 'Office Supplies' become 'Office Supplies'
+    and 'Office Supplies (2)'."""
+    name = sanitize_sheet_name(name)
+    if name not in wb.sheetnames:
+        return name
+    base = name[:27]  # leave room for " (n)"
+    n = 2
+    while True:
+        candidate = f"{base} ({n})"[:31]
+        if candidate not in wb.sheetnames:
+            return candidate
+        n += 1
+
+
+def copy_sheet_into_workbook(src_ws, dst_wb, sheet_name):
+    """Manually clones src_ws (values, styles, merges, row/col sizing) into
+    a brand-new sheet inside dst_wb. openpyxl worksheets belong to exactly
+    one workbook, so there's no built-in 'move this sheet to another file' —
+    everything has to be copied cell by cell instead of the object moved."""
+    name = unique_sheet_name(dst_wb, sheet_name)
+    dst_ws = dst_wb.create_sheet(title=name)  # created at the end by default
+
+    for row in src_ws.iter_rows():
+        for cell in row:
+            new_cell = dst_ws.cell(row=cell.row, column=cell.column, value=cell.value)
+            if cell.has_style:
+                new_cell.font          = copy.copy(cell.font)
+                new_cell.fill          = copy.copy(cell.fill)
+                new_cell.border        = copy.copy(cell.border)
+                new_cell.alignment     = copy.copy(cell.alignment)
+                new_cell.number_format = cell.number_format
+                new_cell.protection    = copy.copy(cell.protection)
+
+    for mc in src_ws.merged_cells.ranges:
+        dst_ws.merge_cells(start_row=mc.min_row, start_column=mc.min_col,
+                            end_row=mc.max_row,   end_column=mc.max_col)
+
+    for letter, dim in src_ws.column_dimensions.items():
+        if dim.width:
+            dst_ws.column_dimensions[letter].width = dim.width
+    for idx, dim in src_ws.row_dimensions.items():
+        if dim.height:
+            dst_ws.row_dimensions[idx].height = dim.height
+
+    # create_sheet() already appends at the end, but move it explicitly so
+    # this stays correct even if a same-named "(2)" tab gets re-added later.
+    dst_wb.move_sheet(name, offset=len(dst_wb.sheetnames) - 1 - dst_wb.sheetnames.index(name))
+    return dst_ws
+
 
 def main():
     data_path, tmpl_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    # Optional: append this canvass as a new LAST sheet into an existing
+    # multi-department workbook instead of shipping it as its own file.
+    #   argv[4] = path to the existing book (e.g. HR_Canvass_Book.xlsx)
+    #   argv[5] = desired sheet/tab name (defaults to the canvass title)
+    append_target = sys.argv[4] if len(sys.argv) > 4 else None
+    sheet_name    = sys.argv[5] if len(sys.argv) > 5 else None
 
     with open(data_path) as f:
         d = json.load(f)
@@ -234,6 +359,17 @@ def main():
     shutil.copy2(tmpl_path, out_path)
     wb = load_workbook(out_path)
     ws = wb.active  # Sheet1
+
+    # If there's only ONE supplier, drop the template's unused 2nd price
+    # block (columns N:P) entirely instead of leaving it blank — shrinks and
+    # re-centers every banner merge that spanned across it.
+    if n_sup == 1:
+        remove_supplier_block(ws, 1)
+
+    # Sheet/tab name = the project title, falling back to "Canvass" when
+    # blank. Applies to standalone exports; append-mode uses the separate
+    # sheet_name/title fallback further down when cloning into the master book.
+    ws.title = sanitize_sheet_name(title) if title else "Canvass"
 
     # ── Fill header fields ────────────────────────────────────────────────────
     # Row 2: item/title
@@ -276,11 +412,20 @@ def main():
         # Copy style from row 14 to the new rows
         for extra in range(1, n_items):
             copy_row_style(ws, 14, 14 + extra)
-            # This B:D merge is new (row 14 is the only one that had it
-            # originally) so it's created fresh rather than shifted
+            # These merges are new (row 14 is the only row that had them
+            # originally) so they're created fresh rather than shifted.
+            # B:D — item description
             ws.merge_cells(
                 start_row=14 + extra, start_column=2,
                 end_row=14 + extra,   end_column=4
+            )
+            # I:J — "REFERENCE ONLY (LAST PURCHASE)" Date column. Row 14
+            # ships with I14:J14 merged in the template, but rows 15+ never
+            # got the same merge, leaving I and J as two separate unmerged
+            # cells that visually collide/overlap on every inserted row.
+            ws.merge_cells(
+                start_row=14 + extra, start_column=9,
+                end_row=14 + extra,   end_column=10
             )
 
     # ── Fill item rows ────────────────────────────────────────────────────────
@@ -301,7 +446,13 @@ def main():
 
         for i in range(n_sup):
             label_col, price_col, total_col = supplier_cols(i)
-            price_num = to_number(item.get(f"p{i + 1}", ""))
+            raw_price = item.get(f"p{i + 1}", "")
+            price_num = to_number(raw_price)
+
+            if price_num is None and raw_price not in ("", None):
+                print(f"[canvass_fill] WARNING row {r} supplier {i+1}: "
+                      f"could not parse price {raw_price!r} -> writing blank cell "
+                      f"(col {get_column_letter(price_col)})", file=sys.stderr)
 
             # label_col (K, N, Q, ...) is the static "PRICE" caption baked
             # into the template on item rows — never written to. Only
@@ -312,6 +463,9 @@ def main():
                 price_letter = get_column_letter(price_col)
                 ws.cell(row=r, column=total_col).value = f"={price_letter}{r}*E{r}"
                 sup_totals[i] += price_num * (qty_num or 0)
+            else:
+                print(f"[canvass_fill] row {r} supplier {i+1}: total cell "
+                      f"NOT written (price_num is None)", file=sys.stderr)
 
         # Apply borders
         for col in range(1, last_col + 1):
@@ -363,8 +517,26 @@ def main():
     # Remarks (A16:C23 merged area)
     sfill(1, 1, remarks or "")
 
-    wb.save(out_path)
-    print(f"Saved: {out_path}")
+    if append_target:
+        if os.path.exists(append_target):
+            master_wb = load_workbook(append_target)
+        else:
+            # Target book doesn't exist yet (e.g. first-ever HR canvass) —
+            # start a fresh one without openpyxl's default blank "Sheet".
+            master_wb = Workbook()
+            master_wb.remove(master_wb.active)
+
+        final_name = sheet_name or title or "Canvass"
+        copy_sheet_into_workbook(ws, master_wb, final_name)
+        # IMPORTANT: save back to append_target itself, in place — NOT to
+        # out_path, which is just the scratch file used to build this one
+        # sheet. Saving to out_path here would silently discard the append
+        # and leave the real department book untouched.
+        master_wb.save(append_target)
+        print(f"Appended sheet '{final_name}' to {append_target} (saved in place)")
+    else:
+        wb.save(out_path)
+        print(f"Saved: {out_path}")
 
 
 if __name__ == "__main__":

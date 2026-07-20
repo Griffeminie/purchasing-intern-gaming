@@ -26,6 +26,7 @@
 
     /* ── Form fields ────────────────────────────────────────── */
     .header-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+    .header-grid .full { grid-column:1 / -1; }
     .f-label { display:block; font-size:11px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--text-3); margin-bottom:5px; }
     .f-input {
       width:100%; background:var(--bg-3); border:1px solid var(--border); color:var(--text);
@@ -339,13 +340,19 @@
         <div class="c-card-title-left"><i data-lucide="file-text" style="width:14px;height:14px;"></i> Canvass Details</div>
       </div>
       <div class="header-grid">
-        <div class="f-group"><label class="f-label">Item / Project Title</label><input class="f-input" type="text" id="cs-title" placeholder="e.g. Office Supplies Q3" /></div>
+        <div class="f-group"><label class="f-label">Item / Project Title</label><input class="f-input" type="text" id="cs-title" placeholder="e.g. Office Supplies Q3" oninput="updateExportButtonLabel()" /></div>
         <div class="f-group">
           <label class="f-label">RO Number (optional)</label>
-          <input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none"
-            oninput="checkDevTrigger(this.value)" />
+          <input class="f-input" type="text" id="cs-ro" placeholder="Leave blank if none" />
         </div>
         <div class="f-group"><label class="f-label">Date</label><input class="f-input" type="date" id="cs-date" /></div>
+        <div class="f-group full">
+          <label class="f-label">Excel File</label>
+          <select class="f-input" id="cs-target-book">
+            <option value="">+ Create New Canvass</option>
+          </select>
+          <div class="f-hint" id="cs-target-hint">Loading workbook list…</div>
+        </div>
       </div>
     </div>
 
@@ -367,12 +374,15 @@
         <div class="uz-hint">Each file = one supplier's quotation</div>
       </div>
 
-      <div class="manual-divider"><span>or</span></div>
+    <div class="manual-divider"><span>or</span></div>
       <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
         <button class="cbtn cbtn-ghost cbtn-sm" onclick="addBlankSupplier()">
           <i data-lucide="pencil-line" style="width:13px;height:13px;"></i> Enter Manually
         </button>
         <span style="color:var(--border);font-size:11px;">|</span>
+        <button class="cbtn cbtn-ghost cbtn-sm" onclick="openManualJsonDebug()">
+          <i data-lucide="code" style="width:13px;height:13px;"></i> Paste JSON (Debug)
+        </button>
       </div>
 
       <!-- File list -->
@@ -457,11 +467,32 @@
     </div>
 
     <!-- Debug: raw AI response -->
-    <div id="debug-wrap" style="display:none;" class="c-card">
+<div id="debug-wrap" style="display:none;" class="c-card">
       <div class="c-card-title">
         <div class="c-card-title-left"><i data-lucide="terminal" style="width:14px;height:14px;"></i> Raw AI Response</div>
-        <button class="cbtn cbtn-ghost cbtn-sm" onclick="document.getElementById('debug-wrap').style.display='none'">Hide</button>
+        <div style="display:flex;gap:6px;">
+          <button class="cbtn cbtn-ghost cbtn-sm" onclick="toggleManualJsonPanel()" title="Paste your own extraction JSON instead of calling Gemini">
+            <i data-lucide="pencil" style="width:12px;height:12px;"></i> Edit
+          </button>
+          <button class="cbtn cbtn-ghost cbtn-sm" onclick="document.getElementById('debug-wrap').style.display='none'">Hide</button>
+        </div>
       </div>
+
+      <div id="manual-json-panel" style="display:none;margin-bottom:12px;">
+        <div style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-bottom:6px;">
+          Paste a single supplier's JSON (same shape Gemini returns) to create/update a supplier tab without calling the API.
+        </div>
+        <textarea id="manual-json-input" class="f-input" rows="10" spellcheck="false"
+          style="font-family:var(--font-mono);font-size:11px;resize:vertical;width:100%;box-sizing:border-box;"
+          placeholder='{"supplierName":"","location":"","contactPerson":"","contactNumber":"","items":[{"itemNo":"","description":"","qty":"","unit":"","unitPrice":"","total":""}],"deliveryCharge":"","discount":"","grandTotal":"","creditTerms":"","vat":"","availability":"","deliveryAddress":""}'></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input class="f-input" type="text" id="manual-json-label" placeholder="Supplier/file label (optional)" style="max-width:240px;" />
+          <button class="cbtn cbtn-amber cbtn-sm" onclick="loadManualJson()">
+            <i data-lucide="upload" style="width:12px;height:12px;"></i> Load as Supplier
+          </button>
+        </div>
+      </div>
+
       <pre id="raw-output" class="raw-box visible" style="max-height:300px;"></pre>
     </div>
 
@@ -472,27 +503,16 @@
     let hasUnsavedChanges = false;
     function markDirty() { hasUnsavedChanges = true; }
 
-    window.addEventListener('beforeunload', (e) => {
-      if (!hasUnsavedChanges) return;
-      e.preventDefault();
-      e.returnValue = '';
-    });
     // ── Config ───────────────────────────────────────────────────────────────
-    let GEMINI_API_KEY = "";
-    const GEMINI_MODEL = "gemini-2.5-flash-lite";
-    const GEMINI_URL   = () =>
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-    // Load key from server on page load
+    let AI_READY = false;
     let configReady = fetch("/api/config")
       .then(r => r.json())
       .then(cfg => {
-        GEMINI_API_KEY = cfg.GEMINI_API_KEY;
-        setAIStatus(GEMINI_API_KEY ? 'ready' : 'error');
+        AI_READY = !!cfg.aiReady;
+        setAIStatus(AI_READY ? 'ready' : 'error');
       })
       .catch(() => setAIStatus('error'));
     // ── Config ───────────────────────────────────────────────────────────────
-
     const GEMINI_PROMPT = `
 You are extracting information from a supplier quotation document.
 Return ONLY valid JSON with EXACTLY this structure — no markdown, no backticks, no explanations:
@@ -608,10 +628,10 @@ function removeFile(id) {
     }
 
     // Retries extraction for ONE failed file only — every other file/supplier is untouched.
-    async function retryFile(id) {
+  async function retryFile(id) {
       await configReady;
-      if (!GEMINI_API_KEY) {
-        toast('Add your Gemini API key in canvass.html first.', 'error', 6000);
+      if (!AI_READY) {
+        toast('AI is not configured on the server. Check data/config.json.', 'error', 6000);
         return;
       }
       const file = uploadedFiles.find(f => f.id === id);
@@ -689,8 +709,8 @@ const retryBtn = f.status === 'error'
     // ── Extract all ──────────────────────────────────────────────────────────
     async function extractAll() {
       await configReady;
-      if (!GEMINI_API_KEY) {
-        toast('Add your Gemini API key in canvass.html first.', 'error', 6000);
+      if (!AI_READY) {
+        toast('AI is not configured on the server. Check data/config.json.', 'error', 6000);
         return;
       }
 
@@ -740,31 +760,40 @@ const retryBtn = f.status === 'error'
       }
     }
 
-    async function callGemini(file) {
-      const payload = {
-        contents: [{
-          parts: [
-            { text: GEMINI_PROMPT },
-            { inline_data: { mime_type: file.type, data: file.b64 } }
-          ]
-        }]
-      };
+    const GEMINI_TIMEOUT_MS = 45000; // fail fast instead of hanging on a stalled request
 
-      const resp = await fetch(GEMINI_URL(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+  async function callGemini(file) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+      const t0 = performance.now();
+      console.log(`[Gemini] Sending "${file.name}" (${file.type}, ${((file.b64?.length || 0) * 0.75 / 1024).toFixed(0)} KB)…`);
+
+      let resp;
+      try {
+        resp = await fetch('/api/gemini/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mimeType: file.type, base64: file.b64 }),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        if (e.name === 'AbortError') {
+          throw new Error(`Timed out after ${GEMINI_TIMEOUT_MS / 1000}s — no response from server`);
+        }
+        throw e;
+      }
+      clearTimeout(timer);
+      console.log(`[Gemini] "${file.name}" responded in ${((performance.now() - t0) / 1000).toFixed(1)}s (HTTP ${resp.status})`);
 
       const data = await resp.json();
-      if (data.error) throw new Error(data.error.message);
+      if (data.error) throw new Error(data.error.message || data.error);
 
       const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const cleaned = stripModelTokens(rawText.replace(/```json/gi,'').replace(/```/g,'').trim());
       const parsed  = JSON.parse(cleaned);
       return deepCleanStrings(parsed);
     }
-
     // Some models (esp. Gemma-based ones like gemini-flash-lite) occasionally leak
     // internal special tokens such as <bos>/<eos>/<pad> into output text, sometimes
     // mid-word inside a name (e.g. "Mj<bos>Gacuta"). Strip these out everywhere.
@@ -817,7 +846,7 @@ const retryBtn = f.status === 'error'
         loc:     result.location       || '',  // blank if AI couldn't find it — fill in manually
         contact: result.contactPerson  || '',  // blank if AI couldn't find it — fill in manually
         num:     result.contactNumber  || '',  // blank if AI couldn't find it — fill in manually
-        sourceFile: { name: file.name, dataUrl: file.dataUrl, type: file.type }, // for the preview thumbnail
+        sourceFile: file.dataUrl ? { name: file.name, dataUrl: file.dataUrl, type: file.type } : null, // for the preview thumbnail // for the preview thumbnail
         items,
         terms: {
           deliveryCharge: result.deliveryCharge || '',
@@ -841,10 +870,46 @@ const retryBtn = f.status === 'error'
       suppliers.push({ id, name:'', loc:'', contact:'', num:'', sourceFile:null, items:[], terms:{
         deliveryCharge:'', discount:'', grandTotal:'', creditTerms:'', vat:'', availability:'', deliveryAddress:'',
       }});
-      activeSupplierId = id;
+activeSupplierId = id;
       renderSuppliers();
       document.getElementById('suppliers-card').style.display = 'block';
       document.getElementById('suppliers-card').scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+
+    // ── Manual JSON entry (skip Gemini entirely for testing export) ─────────
+  function toggleManualJsonPanel() {
+      const panel = document.getElementById('manual-json-panel');
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // Opens the debug card + JSON panel directly, without needing to run a real extraction first
+    function openManualJsonDebug() {
+      document.getElementById('debug-wrap').style.display = 'block';
+      document.getElementById('manual-json-panel').style.display = 'block';
+      document.getElementById('debug-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function loadManualJson() {
+      const raw = document.getElementById('manual-json-input').value.trim();
+      if (!raw) { toast('Paste some JSON first.', 'error'); return; }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        toast('Invalid JSON: ' + e.message, 'error', 5000);
+        return;
+      }
+
+      const label = document.getElementById('manual-json-label').value.trim() || `Manual Entry ${suppliers.length + 1}`;
+      const fakeFile = { name: label, dataUrl: null, type: 'manual/json' };
+      const cleaned = deepCleanStrings(parsed);
+
+      appendRawOutput(label + ' (manual)', cleaned);
+      createSupplierFromResult(fakeFile, cleaned);
+
+      document.getElementById('suppliers-card').style.display = 'block';
+      document.getElementById('debug-wrap').style.display = 'block';
+      toast(`Loaded "${label}" from manual JSON.`, 'success');
     }
 
     // ── Render suppliers as tabs (dynamic — works for 1, 2, 3, 4+ suppliers) ──
@@ -1150,8 +1215,8 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
 // ── Match items across suppliers (AI groups similar items into one name) ──
     async function matchItemsAcrossSuppliers() {
       await configReady;
-      if (!GEMINI_API_KEY) {
-        toast('Add your Gemini API key in canvass.html first.', 'error', 6000);
+      if (!AI_READY) {
+        toast('AI is not configured on the server. Check data/config.json.', 'error', 6000);
         return;
       }
       if (suppliers.length < 2) {
@@ -1176,14 +1241,13 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       }
 
       try {
-        const payload = { contents: [{ parts: [{ text: ITEM_MATCH_PROMPT + JSON.stringify(allItems, null, 2) }] }] };
-        const resp = await fetch(GEMINI_URL(), {
+        const resp = await fetch('/api/gemini/match', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ items: allItems }),
         });
         const data = await resp.json();
-        if (data.error) throw new Error(data.error.message);
+        if (data.error) throw new Error(data.error.message || data.error);
 
         const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         const cleaned = stripModelTokens(rawText.replace(/```json/gi,'').replace(/```/g,'').trim());
@@ -1325,22 +1389,6 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
         </tr>`).join('');
       lucide.createIcons();
     }
-
-    // ── Dev key override (type *mynamejeff* in the RO field) ──────────────────
-    function checkDevTrigger(val) {
-      if (val === '*mynamejeff*') {
-        const panel = document.getElementById('dev-key-panel');
-        const isVisible = panel.style.display === 'flex';
-        panel.style.display = isVisible ? 'none' : 'flex';
-        lucide.createIcons();
-        document.getElementById('cs-ro').value = ''; // clear the field
-      }
-    }
-
-    function applyDevKey(val) {
-      GEMINI_API_KEY = val.trim();
-      setAIStatus(GEMINI_API_KEY ? 'ready' : 'error');
-    }
     function calcTotal(price, qty) {
       const p = parseFloat(String(price).replace(/[^0-9.]/g,''));
       const q = parseFloat(String(qty).replace(/[^0-9.]/g,''));
@@ -1360,6 +1408,12 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       dot.style.background = s.color;
       label.textContent    = s.text;
     }
+    function setStatus(state, text) {
+      const badge = document.getElementById('extract-status');
+      if (!badge) return;
+      badge.className = 'status-badge sb-' + state;
+      badge.textContent = text;
+    }
 
     function addReviewRow() {
       const row = { desc:'', qty:'1', unit:'pce' };
@@ -1373,11 +1427,50 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       renderReviewTable();
     }
 
+    // ── Keep the export button's label in sync with the project title ───────
+    function updateExportButtonLabel() {
+      const title = document.getElementById('cs-title').value.trim();
+      const label = title ? `Export to ${title}` : 'Export to Canvass';
+      const btn = document.getElementById('export-btn');
+      if (btn.disabled) return; // don't clobber the "Generating…/Appending…" spinner mid-export
+      btn.innerHTML = `<i data-lucide="download" style="width:14px;height:14px;"></i> ${escHtml(label)}`;
+      lucide.createIcons();
+    }
+    updateExportButtonLabel();
+
+    // ── Populate the "Excel File" dropdown from CANVASS_DIR on the server ───
+    async function loadTargetBookOptions() {
+      const select = document.getElementById('cs-target-book');
+      const hint   = document.getElementById('cs-target-hint');
+      try {
+        const resp = await fetch('/api/canvass/books');
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        data.books.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+        hint.textContent = data.books.length
+          ? `${data.books.length} existing workbook${data.books.length > 1 ? 's' : ''} found. Default appends nothing — creates a new file instead.`
+          : 'No existing workbooks found in that folder — will create a new file.';
+      } catch (e) {
+        hint.textContent = `Couldn't load workbook list: ${e.message}`;
+        hint.classList.add('warn');
+      }
+    }
+    loadTargetBookOptions();
+
     // ── Export ───────────────────────────────────────────────────────────────
     async function exportToTemplate() {
       const btn = document.getElementById('export-btn');
+      const originalLabel = btn.innerHTML;
+      const targetBook = document.getElementById('cs-target-book').value; // "" = create new
+
       btn.disabled = true;
-      btn.innerHTML = '<div class="spinner"></div> Generating Excel…';
+      btn.innerHTML = '<div class="spinner"></div> ' + (targetBook ? 'Appending…' : 'Generating Excel…');
 
       const payload = {
         title:   document.getElementById('cs-title').value,
@@ -1397,6 +1490,7 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
         vat:      suppliers.map(s => s.terms.vat            || ''),
         avail:    suppliers.map(s => s.terms.availability   || ''),
         da:       suppliers.map(s => s.terms.deliveryAddress|| ''),
+        ...(targetBook ? { targetBook, sheetName: document.getElementById('cs-title').value } : {}),
       };
 
       try {
@@ -1407,14 +1501,21 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
         });
         if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Server error'); }
 
-        const blob  = await resp.blob();
-        const url   = URL.createObjectURL(blob);
-        const a     = document.createElement('a');
-        a.href      = url;
-        a.download  = `Canvass_${(document.getElementById('cs-title').value||'Sheet').replace(/\s+/g,'_')}.xlsx`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast('Excel downloaded — template preserved!', 'success');
+        const contentType = resp.headers.get('Content-Type') || '';
+        if (contentType.includes('application/json')) {
+          // Append mode — server wrote the sheet into the chosen workbook in place.
+          const info = await resp.json();
+          toast(`Added "${info.sheet}" to ${info.appendedTo}`, 'success', 5000);
+        } else {
+          const blob  = await resp.blob();
+          const url   = URL.createObjectURL(blob);
+          const a     = document.createElement('a');
+          a.href      = url;
+          a.download  = `Canvass_${(document.getElementById('cs-title').value||'Sheet').replace(/\s+/g,'_')}.xlsx`;
+          a.click();
+          URL.revokeObjectURL(url);
+          toast('Excel downloaded — template preserved!', 'success');
+        }
         setStep(3);
       } catch(e) {
         toast('Export failed: ' + e.message, 'error');
@@ -1422,17 +1523,8 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       }
 
       btn.disabled = false;
-      btn.innerHTML = '<i data-lucide="download" style="width:14px;height:14px;"></i> Export to Excel Template';
-      lucide.createIcons();
+      updateExportButtonLabel();
     }
-
-    // ── Status badge ─────────────────────────────────────────────────────────
-    function setStatus(state, msg) {
-      const el = document.getElementById('extract-status');
-      el.className = `status-badge sb-${state}`;
-      el.textContent = msg;
-    }
-
     // ── Step indicator ───────────────────────────────────────────────────────
     function setStep(n) {
       [1,2,3].forEach(i => {
@@ -1458,24 +1550,6 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       return String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    // ── Dev key override (type *mynamejeff* anywhere on page to unlock) ────────
-    (function() {
-      let buf = '';
-      document.addEventListener('keydown', e => {
-        buf += e.key;
-        if (buf.length > 13) buf = buf.slice(-13);
-        if (buf === '*mynamejeff*') {
-          const panel = document.getElementById('dev-key-panel');
-          panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
-          buf = '';
-        }
-      });
-    })();
-
-    function applyDevKey(val) {
-      GEMINI_API_KEY = val.trim();
-      setAIStatus(GEMINI_API_KEY ? 'ready' : 'error');
-    }
     // ── Attach image/photo to an existing manually-added supplier tab ─────────
     function attachImageToSupplier(supplierId, e) {
       const file = e.target.files[0];
