@@ -1,11 +1,3 @@
-# Sensitive config — NEVER commit these
-data/config.json
-
-# Excel / data files (may contain company data)
-data/*.xlsx
-data/*.json
-data/scans/
-
 # Node
 node_modules/
 npm-debug.log*
@@ -17,7 +9,7 @@ Thumbs.db
 # Uploads
 uploads/
 
-#images that shouldnt be here
+# Images
 *.jpg
 *.jpeg
 *.png
