@@ -3,25 +3,41 @@
  * Added: PO file upload, serve, delete routes
  */
 
+// ── Startup timing instrumentation (temporary, remove once diagnosed) ──────
+const __bootStart = Date.now();
+let __lastMark = __bootStart;
+function bootLog(label) {
+  const now = Date.now();
+  console.log(`[BOOT] ${label} — step: ${now - __lastMark}ms | total: ${now - __bootStart}ms`);
+  __lastMark = now;
+}
+bootLog("process start (server.js begin)");
+
 const express    = require("express");
 const multer     = require("multer");
 const xlsx       = require("xlsx");
 const path       = require("path");
 const fs         = require("fs");
 const os         = require("os");
+bootLog("core requires (express, multer, xlsx, path, fs, os)");
 
 // ── Cross-platform python command resolver ────────────────────────────────────
 const { execFileSync } = require("child_process");
 function resolvePythonCmd() {
   for (const cmd of ["python3", "python"]) {
+    const t0 = Date.now();
     try {
       execFileSync(cmd, ["--version"], { stdio: "ignore" });
+      console.log(`[BOOT]   tried "${cmd}" -> OK in ${Date.now() - t0}ms`);
       return cmd;
-    } catch (e) { /* try next */ }
+    } catch (e) {
+      console.log(`[BOOT]   tried "${cmd}" -> FAILED in ${Date.now() - t0}ms`);
+    }
   }
   throw new Error("No Python interpreter found (tried python3, python)");
 }
 const PYTHON_CMD = resolvePythonCmd();
+bootLog("resolvePythonCmd() total");
 console.log(`[Python] Using command: ${PYTHON_CMD}`);
 
 const {
@@ -30,7 +46,9 @@ const {
   getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
   deleteSupplier, supplierCount,
 } = require("./db");
+bootLog('require("./db")  <- SQLite open/schema/migrations happen here');
 const { buildMonthWorkbook, buildYearWorkbook } = require("./xlsx-template");
+bootLog('require("./xlsx-template")');
 
 const app  = express();
 const PORT = 3000;
@@ -773,6 +791,7 @@ app.post("/api/scanner/save", (req, res) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
+  bootLog("app.listen callback fired — SERVER READY");
   const ifaces = os.networkInterfaces();
   let ip = "localhost";
   Object.values(ifaces).forEach(iface =>
