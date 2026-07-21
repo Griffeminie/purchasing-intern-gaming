@@ -35,6 +35,54 @@ const { buildMonthWorkbook, buildYearWorkbook } = require("./xlsx-template");
 const app  = express();
 const PORT = 3000;
 
+const session = require('express-session');
+const bcrypt  = require('bcrypt');
+const users   = require('./data/users.js'); // your bcrypt-hashed users object
+
+// ── Session (must come before any routes that need req.session) ──────────────
+app.use(session({
+  secret: 'change-this-to-a-random-long-string', // move to config.json / env var
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 hours
+}));
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) return next();
+
+  const ALWAYS_ALLOWED = ['/', '/index.html', '/api/login'];
+  const STATIC_ASSET   = /\.(css|js|png|jpe?g|svg|ico|gif|woff2?)$/i;
+
+  if (ALWAYS_ALLOWED.includes(req.path) || STATIC_ASSET.test(req.path)) {
+    return next();
+  }
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  // Any other page (dashboard.html, monitoring.html, etc.) -> bounce home,
+  // remembering where they were trying to go
+  return res.redirect(`/?next=${encodeURIComponent(req.path)}`);
+}
+app.use(requireAuth);
+
+// ── NOW it's safe to serve static files and parse JSON ────────────────────────
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json({ limit: "20mb" }));
+
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  const hash = users[username];
+  if (hash && await bcrypt.compare(password, hash)) {
+    req.session.user = username;
+    return res.json({ success: true });
+  }
+  res.status(401).json({ success: false, error: 'Invalid username or password' });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ success: true }));
+});
+
 // ── Canvass workbook directory ────────────────────────────────────────────────
 const CANVASS_DIR = "X:\\NEW PURCHASING TEAM\\CANVASS SHEET";
 
@@ -119,9 +167,6 @@ async function callGeminiRaw(payload) {
   if (data.error) throw new Error(data.error.message);
   return data;
 }
-
-app.use(express.static(path.join(__dirname, "public")));
-app.use(express.json({ limit: "20mb" }));
 
 // ── PO PDF upload storage ─────────────────────────────────────────────────────
 const poFilesDir = path.join(__dirname, "data", "po_files");
@@ -247,6 +292,15 @@ app.get("/api/suppliers", (req, res) => {
     console.error("[Suppliers] ERROR reading from SQLite:", e.message);
     res.status(500).json({ suppliers: [], error: e.message });
   }
+});
+
+// ── Public health check — no sheet data, just confirms server is up ──────────
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+    loggedIn: !!(req.session && req.session.user),
+    username: req.session.user || null,
+  });
 });
 
 // ── List existing department canvass workbooks ────────────────────────────────
@@ -779,9 +833,9 @@ app.listen(PORT, "0.0.0.0", () => {
     iface.forEach(d => { if (d.family === "IPv4" && !d.internal) ip = d.address; })
   );
   const count = db.prepare("SELECT COUNT(*) AS cnt FROM purchase_orders").get();
-  console.log(`\n✅  Purchasing Tool running!`);
-  console.log(`    Local:   http://localhost:${PORT}`);
-  console.log(`    Network: http://${ip}:${PORT}\n`);
-  console.log(`📦  Database: ${count.cnt} rows in SQLite`);
-  console.log(`📂  PO Files: ${poFilesDir}\n`);
+  console.log(`\nMainframe initialized`);
+  console.log(`Local:   http://localhost:${PORT}`);
+  console.log(`Network: http://${ip}:${PORT}\n`);
+  console.log(`Database: ${count.cnt} rows in SQLite`);
+  console.log(`PO Files: ${poFilesDir}\n`);
 });
