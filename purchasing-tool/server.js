@@ -409,6 +409,43 @@ app.post("/api/sheet/:name/add", (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Last Purchase lookup (for canvass "Add Last Purchase" per item) ─────────
+// GET /api/purchase-history/search?q=some text
+// Searches item description, supplier name, and PO number across ALL months.
+// Returns only the 4 fields the canvass lookup popup needs.
+app.get("/api/purchase-history/search", (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    let rows;
+    if (q) {
+      rows = db.prepare(`
+        SELECT po_date, supplier_name, po_number, unit_price
+        FROM purchase_orders
+        WHERE item_description LIKE ? OR supplier_name LIKE ? OR po_number LIKE ?
+        ORDER BY po_date DESC
+        LIMIT 50
+      `).all(`%${q}%`, `%${q}%`, `%${q}%`);
+    } else {
+      rows = db.prepare(`
+        SELECT po_date, supplier_name, po_number, unit_price
+        FROM purchase_orders
+        ORDER BY po_date DESC
+        LIMIT 50
+      `).all();
+    }
+    res.json({
+      results: rows.map(r => ({
+        poDate:    r.po_date || "",
+        supplier:  r.supplier_name || "",
+        poNumber:  r.po_number || "",
+        unitPrice: r.unit_price ?? "",
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.put("/api/row/:id", (req, res) => {
   try {
     const id    = parseInt(req.params.id);
