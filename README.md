@@ -50,23 +50,6 @@ If you already have a `monitoring.xlsx`:
 
 The server auto-creates a blank workbook if none exists.
 
----
-
-## OCR Zone Calibration ⚠️ IMPORTANT
-
-The scanner uses **fixed zones** (percentage positions) to know where to look on the PO image.
-You **must calibrate these** to match your actual PO template.
-
-### How to calibrate:
-
-1. Take a photo of a real PO and open it in any image editor
-2. Note the pixel coordinates of:
-   - **PO Number** (top right corner)
-   - **Supplier Name** (top left area)
-   - **Items table** (middle section)
-3. Convert to 0–1 fractions: `x / imageWidth`, `y / imageHeight`
-4. Edit `ZONES` in `public/scanner.js`:
-
 ```javascript
 const ZONES = {
   poNumber: { top: 0.03, left: 0.76, width: 0.22, height: 0.07 },
