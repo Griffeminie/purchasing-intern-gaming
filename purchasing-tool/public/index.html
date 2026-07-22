@@ -58,11 +58,11 @@
 
     .action-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 5px;
       margin-top: 20px;
       width: 100%;
-      max-width: 100%;
+      max-width: 900px;
     }
 
     .action-card {
@@ -108,11 +108,13 @@
     .action-icon.amber  { background: #2a1a00; color: #f0a030; }
     .action-icon.purple { background: #1a0a3a; color: #a080f0; }
     .action-icon.coral  { background: #2a0a0a; color: #f07060; }
+    .action-icon.teal   { background: #062824; color: #2dd4bf; }
     body.light .action-icon.blue   { background: #ddf4ff; color: #1a6fa8; }
     body.light .action-icon.green  { background: #d1f7d6; color: #166534; }
     body.light .action-icon.amber  { background: #fef3d0; color: #b45309; }
     body.light .action-icon.purple { background: #ede9fe; color: #6d28d9; }
     body.light .action-icon.coral  { background: #fee2e2; color: #b91c1c; }
+    body.light .action-icon.teal   { background: #ccfbf1; color: #0f766e; }
 
     .action-card h2 { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
     .action-card p  { font-size: 11px; color: var(--text-2); line-height: 1.4; margin: 0; flex: 1; }
@@ -333,16 +335,16 @@
           <i data-lucide="scan-line" style="width:18px;height:18px;"></i>
         </div>
         <h2>PO Scanner</h2>
-        <p>Scan a physical PO, auto-extract fields, and check against the monitoring file.</p>
+        <p>Scan PDFs of purchase orders and automatically add entries, with built-in verification.</p>
         <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
 
-      <a href="dashboard.html" class="action-card">
-        <div class="action-icon green">
-          <i data-lucide="bar-chart-2" style="width:18px;height:18px;"></i>
+      <a href="monitoring.html" class="action-card">
+        <div class="action-icon teal">
+          <i data-lucide="table" style="width:18px;height:18px;"></i>
         </div>
-        <h2>Dashboard</h2>
-        <p>Visualize monthly spending, supplier breakdown, cost savings, and PO status.</p>
+        <h2>Monitoring</h2>
+        <p>View and manage the live monitoring file — PO records, statuses, and amounts.</p>
         <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
 
@@ -355,6 +357,15 @@
         <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
 
+      <a href="dashboard.html" class="action-card">
+        <div class="action-icon green">
+          <i data-lucide="bar-chart-2" style="width:18px;height:18px;"></i>
+        </div>
+        <h2>Dashboard</h2>
+        <p>Visualize monthly spending, supplier breakdown, cost savings, and PO status.</p>
+        <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
+      </a>
+
       <a href="suppliers.html" class="action-card">
         <div class="action-icon purple">
           <i data-lucide="building-2" style="width:18px;height:18px;"></i>
@@ -364,12 +375,12 @@
         <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
 
-      <a href="calibrate.html" class="action-card">
+      <a href="accountability.html" class="action-card">
         <div class="action-icon coral">
-          <i data-lucide="move" style="width:18px;height:18px;"></i>
+          <i data-lucide="shield-check" style="width:18px;height:18px;"></i>
         </div>
-        <h2>Calibrate</h2>
-        <p>Tune the OCR scanner zones so the PO Scanner reads your documents accurately.</p>
+        <h2>Accountability</h2>
+        <p>Cross-checks names on POs and canvass sheets against official records — simply verifies if the names are correct.</p>
         <span class="arrow"><i data-lucide="arrow-right" style="width:14px;height:14px;"></i></span>
       </a>
 
@@ -385,13 +396,15 @@
     <div class="footer-links">
       <a href="scanner.html">PO Scanner</a>
       <span class="sep">|</span>
+      <a href="monitoring.html">Monitoring</a>
+      <span class="sep">|</span>
       <a href="canvass.html">Canvass</a>
       <span class="sep">|</span>
       <a href="dashboard.html">Dashboard</a>
       <span class="sep">|</span>
       <a href="suppliers.html">Suppliers</a>
       <span class="sep">|</span>
-      <a href="calibrate.html">Calibrate</a>
+      <a href="accountability.html">Accountability</a>
     </div>
 
     <hr class="footer-divider" />

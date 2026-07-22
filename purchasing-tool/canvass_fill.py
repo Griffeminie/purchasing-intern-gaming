@@ -387,15 +387,18 @@ def main():
 
     for i, sup in enumerate(suppliers):
         label_col, _, _ = supplier_cols(i)
-        write_cell(ws, NAME_ROW, label_col, sup.get("name", "") or f"SUPPLIER {i + 1}")
-        # Name already appears in the row-11 header directly above this
-        # block — don't repeat it here, just location / contact / number.
+        # NAME_ROW (row 11) is the template's own static "SUPPLIER 1" /
+        # "SUPPLIER 2" caption — never overwrite it with the actual company
+        # name. The real company name goes as the FIRST line of the info
+        # cell below it (row 12), together with location/contact/number,
+        # so "SUPPLIER 1" always stays visible as the block's fixed label.
         info = "\n".join(filter(None, [
+            sup.get("name", ""),
             sup.get("loc", ""),
             sup.get("contact", ""),
             sup.get("num", ""),
-        ])) or "Location\nContact person\nTheir Number"
-        write_cell(ws, INFO_ROW, label_col, info)       
+        ])) or "Company Name\nLocation\nContact person\nTheir Number"
+        write_cell(ws, INFO_ROW, label_col, info)
 
     # ── Insert item rows above row 15 (NOTHING FOLLOWS) ──────────────────────
     # Template has 1 sample row at row 14. We'll overwrite it with real data
@@ -412,21 +415,29 @@ def main():
         # Copy style from row 14 to the new rows
         for extra in range(1, n_items):
             copy_row_style(ws, 14, 14 + extra)
-            # These merges are new (row 14 is the only row that had them
-            # originally) so they're created fresh rather than shifted.
-            # B:D — item description
+            # B:D — item description. This merge is new (row 14 is the
+            # only row that had it originally) so it's created fresh
+            # rather than shifted.
             ws.merge_cells(
                 start_row=14 + extra, start_column=2,
                 end_row=14 + extra,   end_column=4
             )
-            # I:J — "REFERENCE ONLY (LAST PURCHASE)" Date column. Row 14
-            # ships with I14:J14 merged in the template, but rows 15+ never
-            # got the same merge, leaving I and J as two separate unmerged
-            # cells that visually collide/overlap on every inserted row.
-            ws.merge_cells(
-                start_row=14 + extra, start_column=9,
-                end_row=14 + extra,   end_column=10
-            )
+
+        # Column J (row 11 through the original sample row 14) is ONE
+        # continuous decorative vertical bar in the template — J11:J14 —
+        # NOT a per-row I:J merge. shift_merges_and_insert_rows() leaves it
+        # untouched at rows 11-14 (its min_row is above the insertion
+        # point), so it needs to be manually stretched down to keep
+        # covering every newly inserted item row, instead of stopping
+        # short at row 14 while new rows sit unmerged/uncovered below it.
+        for mc in list(ws.merged_cells.ranges):
+            if (mc.min_col == 10 and mc.max_col == 10
+                    and mc.min_row == NAME_ROW and mc.max_row == 14):
+                ws.unmerge_cells(start_row=mc.min_row, start_column=mc.min_col,
+                                  end_row=mc.max_row, end_column=mc.max_col)
+                ws.merge_cells(start_row=NAME_ROW, start_column=10,
+                                end_row=14 + n_items - 1, end_column=10)
+                break
 
     # ── Fill item rows ────────────────────────────────────────────────────────
     sup_totals = [0.0] * n_sup
@@ -443,6 +454,15 @@ def main():
         ws.cell(row=r, column=2).value  = desc                                     # Description (B, merged to D)
         ws.cell(row=r, column=5).value  = qty_num if qty_num is not None else qty  # QTY as real number
         ws.cell(row=r, column=6).value  = unit                                     # UNIT
+
+        # Reference Only (Last Purchase) — columns H (Unit Price) and I
+        # (Date), one per item row, sitting to the left of every supplier
+        # price block. Column J is the decorative vertical bar next to it
+        # and is never written to directly.
+        last_price = item.get("lastPrice", "")
+        last_price_num = to_number(last_price)
+        ws.cell(row=r, column=8).value = last_price_num if last_price_num is not None else last_price
+        ws.cell(row=r, column=9).value = item.get("lastDate", "")
 
         for i in range(n_sup):
             label_col, price_col, total_col = supplier_cols(i)
@@ -516,6 +536,14 @@ def main():
 
     # Remarks (A16:C23 merged area)
     sfill(1, 1, remarks or "")
+
+    # Defensive safeguard: re-assert every image's anchor exactly as loaded
+    # from the template, immediately before saving. The logo lives at
+    # A1:C6, entirely outside the supplier price blocks we insert/delete/
+    # re-merge columns and rows around — it should never move — but this
+    # guards against any upstream operation subtly disturbing an anchor.
+    _preserved_images = list(ws._images)
+    ws._images = _preserved_images
 
     if append_target:
         if os.path.exists(append_target):
