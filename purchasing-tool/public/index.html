@@ -58,10 +58,21 @@
 
     .action-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
+      grid-auto-rows: 1fr;
       gap: 5px;
       margin-top: 20px;
       width: 100%;
+      max-width: 1180px;
+      opacity: 0;
+    }
+    .action-grid.ready {
+      opacity: 1;
+      transition: opacity 0.15s ease;
+    }
+    /* Once the login card is removed, collapse back to the original 3-col layout */
+    .action-grid.collapsed {
+      grid-template-columns: repeat(3, 1fr);
       max-width: 900px;
     }
 
@@ -202,55 +213,75 @@
     .status-dot.online { background: var(--green); }
 
     @media (max-width: 700px) {
-      .action-grid { grid-template-columns: 1fr; max-width: 320px; }
+      .action-grid, .action-grid.collapsed { grid-template-columns: 1fr; max-width: 320px; }
     }
-    .login-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.45);
-      backdrop-filter: blur(3px);
-      display: flex; align-items: center; justify-content: center;
-      opacity: 0; transition: opacity 0.2s ease;
-      z-index: 1000;
-    }
-    .login-overlay.show { opacity: 1; }
 
-    .login-modal {
-      background: #fff; border-radius: 12px; padding: 28px 32px;
-      width: 320px; box-shadow: 0 20px 50px rgba(0,0,0,0.25);
-      transform: scale(0.92) translateY(10px);
-      transition: transform 0.22s cubic-bezier(.2,.9,.3,1.2);
+    /* ── Login card: lives inside the action grid itself, spanning 2 rows ── */
+    .login-panel {
+      grid-column: 1;
+      grid-row: span 2;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      transition: opacity 0.35s ease, transform 0.35s ease;
     }
-    .login-overlay.show .login-modal { transform: scale(1) translateY(0); }
-    .login-modal.shake { animation: shake 0.35s; }
+    .login-panel.shake { animation: shakePanel 0.35s; }
 
-    @keyframes shake {
+    @keyframes shakePanel {
       0%,100% { transform: translateX(0); }
       20%,60% { transform: translateX(-8px); }
       40%,80% { transform: translateX(8px); }
     }
 
-    .login-modal h2 { margin: 0 0 4px; font-size: 1.25rem; }
-    .login-sub { margin: 0 0 16px; color: #666; font-size: 0.85rem; }
-    .login-modal form { display: flex; flex-direction: column; gap: 10px; }
-    .login-modal input {
-      padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem;
+    .login-panel h2 { margin: 0 0 4px; font-size: 1.15rem; color: var(--text); }
+    .login-sub { margin: 0 0 18px; color: var(--text-2); font-size: 0.82rem; line-height: 1.4; }
+    .login-panel form { display: flex; flex-direction: column; gap: 10px; }
+    .login-panel input {
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.9rem; background: var(--bg); color: var(--text);
     }
-    .login-modal input:focus { outline: none; border-color: #6366f1; }
-    .login-modal button[type="submit"] {
+    .login-panel input:focus { outline: none; border-color: #6366f1; }
+    .login-panel button[type="submit"] {
       margin-top: 4px; padding: 10px; border: none; border-radius: 8px;
       background: #6366f1; color: #fff; font-weight: 600; cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s; font-size: 0.9rem;
     }
-    .login-modal button[type="submit"]:hover { background: #4f46e5; }
-    .login-cancel {
-      margin-top: 10px; width: 100%; background: none; border: none;
-      color: #888; cursor: pointer; font-size: 0.85rem;
-    }
+    .login-panel button[type="submit"]:hover { background: #4f46e5; }
     .login-error {
-      color: #dc2626; font-size: 0.82rem; min-height: 1em; margin-top: -2px;
+      color: #dc2626; font-size: 0.78rem; min-height: 1em; margin-top: -2px;
     }
-    .login-overlay[hidden] {
-      display: none !important;
+
+    /* Success flash after a successful login, shown briefly before the card is removed */
+    .login-status {
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+    .login-panel.success .login-status { display: flex; }
+    .login-panel.success .login-form-wrap { display: none; }
+    .login-panel.success {
+      border-color: var(--green);
+    }
+    .login-status-icon {
+      width: 38px; height: 38px; border-radius: 50%;
+      background: var(--green); color: #fff;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .login-status-text { font-size: 0.85rem; color: var(--green); }
+    .login-status-text strong { color: var(--green); display: block; font-size: 1rem; }
+
+    /* Fade the card out right before it's removed from the DOM */
+    .login-panel.leaving {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+
+    @media (max-width: 700px) {
+      .login-panel { grid-column: auto; grid-row: auto; }
     }
 
     .logout-fab {
@@ -267,9 +298,17 @@
       justify-content: center;
       color: var(--text-3);
       cursor: pointer;
-      transition: all 0.18s ease;
       box-shadow: 0 4px 14px rgba(0,0,0,0.15);
       z-index: 500;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.18s ease, background 0.18s ease,
+                  border-color 0.18s ease, box-shadow 0.18s ease,
+                  color 0.18s ease, opacity 0.3s ease;
+    }
+    .logout-fab.show {
+      opacity: 1;
+      pointer-events: auto;
     }
     .logout-fab:hover {
       color: #fff;
@@ -283,19 +322,6 @@
 </head>
 <body class="home-body">
 
-  <div id="loginOverlay" class="login-overlay" hidden>
-    <div class="login-modal" id="loginModal">
-      <h2>Sign in</h2>
-      <p class="login-sub">This section requires a login.</p>
-      <form id="loginForm">
-        <input type="text" id="loginUser" placeholder="Username" autocomplete="username" required>
-        <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" required>
-        <div class="login-error" id="loginError"></div>
-        <button type="submit">Log in</button>
-      </form>
-      <button class="login-cancel" id="loginCancel">Cancel</button>
-    </div>
-  </div>
   <nav class="topnav">
     <a href="index.html" class="brand">
       <div class="brand-icon">
@@ -328,7 +354,27 @@
       detect discrepancies, and visualize spending in real time.
     </p>
 
-    <div class="action-grid">
+    <div class="action-grid" id="actionGrid">
+
+      <div class="login-panel" id="loginPanel">
+        <div class="login-form-wrap">
+          <h2>Sign in</h2>
+          <p class="login-sub">Log in to unlock the tools below.</p>
+          <form id="loginForm">
+            <input type="text" id="loginUser" placeholder="Username" autocomplete="username" required>
+            <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" required>
+            <div class="login-error" id="loginError"></div>
+            <button type="submit">Log in</button>
+          </form>
+        </div>
+        <div class="login-status" id="loginStatus">
+          <div class="login-status-icon"><i data-lucide="check" style="width:18px;height:18px;"></i></div>
+          <div class="login-status-text">
+            <strong>Success!</strong>
+            You're signed in.
+          </div>
+        </div>
+      </div>
 
       <a href="scanner.html" class="action-card">
         <div class="action-icon blue">
@@ -426,37 +472,102 @@
       <span id="excel-info">monitoring.xlsx</span>
     </div>
   </footer>
+
   <button id="logoutFab" class="logout-fab" title="Log out" hidden>
     <i data-lucide="power" style="width:18px;height:18px;"></i>
   </button>
 <script>lucide.createIcons();</script>
 <script>
 (function () {
-  const overlay  = document.getElementById('loginOverlay');
-  const modal    = document.getElementById('loginModal');
+  const panel    = document.getElementById('loginPanel');
+  const grid     = document.getElementById('actionGrid');
   const form     = document.getElementById('loginForm');
   const errorBox = document.getElementById('loginError');
-  const cancelBtn= document.getElementById('loginCancel');
-  let targetHref = null;
+  let pendingHref = null;
   let isLoggedIn = false;
 
-  function openModal(href) {
-    targetHref = href;
-    errorBox.textContent = '';
-    form.reset();
-    overlay.hidden = false;
-    requestAnimationFrame(() => overlay.classList.add('show'));
-    document.getElementById('loginUser').focus();
-  }
-  function closeModal() {
-    overlay.classList.remove('show');
-    setTimeout(() => { overlay.hidden = true; }, 200);
-  }
+  const SUCCESS_LINGER_MS = 2200;
+
   function shakeError(msg) {
     errorBox.textContent = msg;
-    modal.classList.remove('shake');
-    void modal.offsetWidth;
-    modal.classList.add('shake');
+    panel.classList.remove('shake');
+    void panel.offsetWidth;
+    panel.classList.add('shake');
+  }
+
+  // FLIP technique: record where each card is BEFORE a layout change, apply
+  // the change, then animate from the old position/size to the new one so
+  // cards glide into place instead of instantly snapping to a new size.
+  function animateGridChange(applyChange) {
+    const cards = Array.from(grid.querySelectorAll('.action-card'));
+    const firstRects = cards.map(card => card.getBoundingClientRect());
+
+    applyChange(); // synchronously remove the panel + collapse the grid
+
+    cards.forEach((card, i) => {
+      const first = firstRects[i];
+      const last = card.getBoundingClientRect();
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      const sx = first.width / last.width;
+      const sy = first.height / last.height;
+      if (!dx && !dy && sx === 1 && sy === 1) return;
+
+      card.style.transformOrigin = 'top left';
+      card.style.transition = 'none';
+      card.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+      card.getBoundingClientRect(); // force reflow so the jump above applies first
+      card.style.transition = 'transform 0.4s ease';
+      card.style.transform = '';
+
+      card.addEventListener('transitionend', function cleanup(e) {
+        if (e.propertyName !== 'transform') return;
+        card.style.transition = '';
+        card.style.transformOrigin = '';
+        card.removeEventListener('transitionend', cleanup);
+      });
+    });
+  }
+
+  // Remove the login card entirely and return the grid to its original,
+  // login-free 3-column layout, gliding the remaining cards into place.
+  function removeLoginCard() {
+    if (!panel.isConnected) return;
+    panel.classList.add('leaving');
+    // Wait for the fade-out to finish before collapsing the grid — doing
+    // both at once briefly leaves only 4 empty cells for 6 cards (since the
+    // still-present login card was still claiming a grid cell), which forces
+    // a 3rd row for a split second. Removing + collapsing together, wrapped
+    // in the FLIP animation above, avoids both the flash and the size jump.
+    setTimeout(() => {
+      animateGridChange(() => {
+        panel.remove();
+        grid.classList.add('collapsed');
+      });
+    }, 350); // matches the CSS fade-out duration
+  }
+
+  // Called right after a successful login submit: flash "Success!" in
+  // green for a couple seconds, then tidy the card away.
+  function showSuccessThenRemove() {
+    panel.classList.remove('shake');
+    panel.classList.add('success');
+    setTimeout(() => {
+      if (pendingHref) {
+        window.location.href = pendingHref;
+      } else {
+        removeLoginCard();
+      }
+    }, SUCCESS_LINGER_MS);
+  }
+
+  function nudgeToLogin(href) {
+    // Not logged in yet — the login form is already right there on the
+    // page, so just draw attention to it instead of blocking with a popup.
+    pendingHref = href;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    shakeError('Please log in first to continue');
+    document.getElementById('loginUser').focus();
   }
 
   function attachLinkGuards() {
@@ -466,13 +577,10 @@
       link.addEventListener('click', e => {
         if (isLoggedIn) return; // already authenticated — let it navigate normally
         e.preventDefault();
-        openModal(href);
+        nudgeToLogin(href);
       });
     });
   }
-
-  cancelBtn.addEventListener('click', closeModal);
-  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
@@ -487,7 +595,8 @@
       const data = await res.json();
       if (data.success) {
         isLoggedIn = true;
-        window.location.href = targetHref;
+        document.dispatchEvent(new CustomEvent('app:logged-in'));
+        showSuccessThenRemove();
       } else {
         shakeError(data.error || 'Invalid username or password');
       }
@@ -496,36 +605,72 @@
     }
   });
 
+  // Used on page load when the health check comes back already logged in —
+  // no fade, no slide, just present the final 3-column state directly so
+  // there's nothing for the user to see flash by.
+  function removeLoginCardInstant() {
+    if (!panel.isConnected) return;
+    panel.remove();
+    grid.classList.add('collapsed');
+  }
+
+  function revealGrid() {
+    grid.classList.add('ready');
+  }
+
   // Check session state BEFORE deciding whether to guard links
   fetch('/api/health')
     .then(r => r.json())
     .then(data => {
-      isLoggedIn = !!data.loggedIn;
+      if (data.loggedIn) {
+        // Returning with an existing session — no need for the success
+        // animation, just present the page as already logged in.
+        isLoggedIn = true;
+        removeLoginCardInstant();
+      }
       attachLinkGuards();
+      revealGrid();
 
-      // If server bounced here with ?next=... and we're somehow still not
-      // logged in, reopen the modal automatically
+      // If the server bounced here with ?next=..., that link is still
+      // waiting to be followed once they log in via the card.
       const params = new URLSearchParams(window.location.search);
       const next = params.get('next');
-      if (next && !isLoggedIn) openModal(next);
+      if (next) {
+        if (isLoggedIn) {
+          window.location.href = next;
+        } else {
+          pendingHref = next;
+        }
+      }
     })
     .catch(() => {
       // If health check fails, fail safe: still guard links
       attachLinkGuards();
+      revealGrid();
     });
 })();
 
 (function () {
   const fab = document.getElementById('logoutFab');
 
+  function showFab() {
+    if (!fab.hidden && fab.classList.contains('show')) return;
+    fab.hidden = false;
+    // Unhide first (still opacity 0 per the CSS default), then add 'show'
+    // on the next frame so the opacity transition actually has something
+    // to animate from instead of jumping straight to visible.
+    requestAnimationFrame(() => fab.classList.add('show'));
+  }
+
   fetch('/api/health')
     .then(r => r.json())
     .then(data => {
-      if (data.loggedIn) {
-        fab.hidden = false;
-      }
+      if (data.loggedIn) showFab();
     })
     .catch(() => {});
+
+  // Fires the moment a fresh login succeeds, without needing a page refresh.
+  document.addEventListener('app:logged-in', showFab);
 
   fab.addEventListener('click', async () => {
     await fetch('/api/logout', { method: 'POST' });
