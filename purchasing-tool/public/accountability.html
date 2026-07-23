@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -172,27 +172,6 @@
       margin-bottom: 12px;
     }
 
-    /* ── Manual paste ── */
-    .manual-textarea {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 10px 12px;
-      font-size: 12px;
-      font-family: var(--font-mono);
-      color: var(--text);
-      line-height: 1.6;
-      resize: vertical;
-      outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .manual-textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-    .manual-textarea::placeholder { color: var(--text-3); }
-
     /* ── img preview ── */
     #img-preview {
       display: none;
@@ -234,14 +213,6 @@
       flex-wrap: wrap;
       align-items: center;
     }
-
-    .status-inline {
-      font-size: 12px;
-      font-family: var(--font-mono);
-      color: var(--text-3);
-    }
-    .status-inline.ok  { color: var(--green); }
-    .status-inline.err { color: var(--red); }
 
     @media (max-width: 640px) {
       .stats-row { grid-template-columns: repeat(2, 1fr); }
@@ -319,31 +290,19 @@
 
     <!-- ── SETUP ── -->
     <div id="tab-setup" class="tab-panel active">
-      <div class="two-col">
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title"><i data-lucide="key" style="width:13px;height:13px;display:inline;"></i> Gemini API Key</span>
-          </div>
-          <div class="section-eyebrow">API Key (session only — never stored)</div>
-          <div class="btn-row" style="margin-bottom:8px;">
-            <input type="password" class="form-input" id="gemini-key" placeholder="AIza..." style="flex:1;" />
-            <button class="btn btn-secondary" onclick="saveKey()">
-              <i data-lucide="check" style="width:14px;height:14px;"></i> Save
-            </button>
-          </div>
-          <p class="small muted">Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent-2);">aistudio.google.com</a>.</p>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i data-lucide="file-spreadsheet" style="width:13px;height:13px;display:inline;"></i> Asset Monitoring File</span>
+          <span id="ai-status" style="font-size:11px;font-family:var(--font-mono);display:flex;align-items:center;gap:6px;">
+            <span id="ai-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-3);display:inline-block;"></span>
+            <span id="ai-label">AI checking…</span>
+          </span>
         </div>
-
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title"><i data-lucide="file-spreadsheet" style="width:13px;height:13px;display:inline;"></i> Asset Monitoring File</span>
-          </div>
-          <div class="upload-zone">
-            <input type="file" accept=".xlsx,.xls" onchange="loadExcel(this)" />
-            <div class="uz-icon"><i data-lucide="upload" style="width:24px;height:24px;"></i></div>
-            <p id="excel-status">Drop or click to upload XLSX</p>
-            <p class="uz-hint">Reads B (M3 Code) · C (Store Name) · F (Contact) — rows 3–89</p>
-          </div>
+        <div class="upload-zone">
+          <input type="file" accept=".xlsx,.xls" onchange="loadExcel(this)" />
+          <div class="uz-icon"><i data-lucide="upload" style="width:24px;height:24px;"></i></div>
+          <p id="excel-status">Drop or click to upload XLSX</p>
+          <p class="uz-hint">Reads B (M3 Code) · C (Store Name) · F (Contact) — rows 3–89</p>
         </div>
       </div>
     </div>
@@ -417,23 +376,6 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
         </div>
       </div>
 
-      <!-- Manual paste fallback -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title"><i data-lucide="clipboard" style="width:13px;height:13px;display:inline;"></i> Manual JSON Paste</span>
-          <span class="badge badge-grey" style="font-size:10px;">Quota fallback</span>
-        </div>
-        <p class="small muted" style="margin-bottom:12px;">Hit your Gemini quota? Ask Claude or ChatGPT to extract the form using the prompt above, then paste the JSON here.</p>
-        <div class="section-eyebrow">Paste JSON Array</div>
-        <textarea id="manual-json" class="manual-textarea" rows="6"
-          placeholder='[{"store_name":"CSI Dagupan 10016","m3_code":"10016","accountable_person":"Janette Ferrer"}]'></textarea>
-        <div class="btn-row" style="margin-top:10px;">
-          <button class="btn btn-secondary" onclick="loadManualJSON()">
-            <i data-lucide="arrow-right" style="width:14px;height:14px;"></i> Use This JSON
-          </button>
-          <span class="status-inline" id="manual-status"></span>
-        </div>
-      </div>
     </div>
 
     <!-- ── RESULTS ── -->
@@ -479,7 +421,30 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
   <script>
     lucide.createIcons();
 
-    let geminiKey = '';
+    let AI_READY = false;
+    let configReady = fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => {
+        AI_READY = !!cfg.aiReady;
+        setAIStatus(AI_READY ? 'ready' : 'error');
+        checkScanReady();
+      })
+      .catch(() => setAIStatus('error'));
+
+    function setAIStatus(state) {
+      const dot   = document.getElementById('ai-dot');
+      const label = document.getElementById('ai-label');
+      if (!dot || !label) return;
+      const states = {
+        checking: { color: '#d29922', text: 'AI checking…'  },
+        ready:    { color: '#3fb950', text: 'AI ready'       },
+        error:    { color: '#f85149', text: 'AI key missing' },
+      };
+      const s = states[state] || states.checking;
+      dot.style.background = s.color;
+      label.textContent    = s.text;
+    }
+
     let storeRecords = [];
     let scannedData = [];
     let verificationResults = [];
@@ -504,15 +469,6 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
       document.getElementById('toasts').appendChild(el);
       lucide.createIcons();
       setTimeout(() => el.remove(), 4000);
-    }
-
-    /* ── Setup ── */
-    function saveKey() {
-      const v = document.getElementById('gemini-key').value.trim();
-      if (!v) { toast('Enter a Gemini API key.', 'warn'); return; }
-      geminiKey = v;
-      checkScanReady();
-      toast('API key saved for this session.', 'success');
     }
 
     function updateStats() {
@@ -598,7 +554,7 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
     }
 
     function checkScanReady() {
-      document.getElementById('scan-btn').disabled = !(geminiKey && imageBase64);
+      document.getElementById('scan-btn').disabled = !(AI_READY && imageBase64);
     }
 
     function copyPrompt() {
@@ -612,7 +568,8 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
     }
 
     async function runScan() {
-      if (!geminiKey) { toast('Save your Gemini API key first.', 'warn'); return; }
+      await configReady;
+      if (!AI_READY) { toast('AI is not configured on the server. Check data/config.json.', 'warn'); return; }
       if (!imageBase64) { toast('Upload a form photo first.', 'warn'); return; }
 
       document.getElementById('scan-progress').style.display = 'block';
@@ -620,25 +577,15 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
       document.getElementById('scan-btn').disabled = true;
       setProgress(15, 'Sending image to Gemini Vision...');
 
-      const prompt = document.getElementById('gemini-prompt').innerText;
       try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [
-                { inline_data: { mime_type: imageMime, data: imageBase64 } },
-                { text: prompt }
-              ]}],
-              generationConfig: { temperature: 0.1 }
-            })
-          }
-        );
+        const res = await fetch('/api/gemini/extract-accountability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mimeType: imageMime, base64: imageBase64 })
+        });
         setProgress(70, 'Processing response...');
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error?.message || 'Gemini API error ' + res.status);
+        if (data.error) throw new Error(data.error.message || data.error);
         const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         scannedData = JSON.parse(raw.replace(/```json|```/g, '').trim());
         setProgress(100, 'Extraction complete.');
@@ -658,27 +605,6 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
     function setProgress(pct, msg) {
       document.getElementById('prog-bar').style.width = pct + '%';
       document.getElementById('prog-msg').textContent = msg;
-    }
-
-    function loadManualJSON() {
-      const raw = document.getElementById('manual-json').value.trim();
-      const status = document.getElementById('manual-status');
-      if (!raw) { status.textContent = 'Nothing pasted.'; status.className = 'status-inline err'; return; }
-      try {
-        const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
-        if (!Array.isArray(parsed)) throw new Error('Must be a JSON array.');
-        scannedData = parsed;
-        document.getElementById('scan-result-card').style.display = 'block';
-        document.getElementById('scan-summary').textContent = parsed.length + ' entries loaded manually';
-        document.getElementById('json-preview').textContent = JSON.stringify(scannedData, null, 2);
-        status.textContent = '✓ ' + parsed.length + ' entries loaded';
-        status.className = 'status-inline ok';
-        toast(parsed.length + ' entries loaded from paste.', 'success');
-      } catch(err) {
-        status.textContent = 'Invalid JSON: ' + err.message;
-        status.className = 'status-inline err';
-        toast('Invalid JSON: ' + err.message, 'error');
-      }
     }
 
     /* ── Verification ── */
