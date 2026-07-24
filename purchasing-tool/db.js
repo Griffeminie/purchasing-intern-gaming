@@ -325,11 +325,12 @@ const stmts = {
     ORDER BY total DESC
   `),
 
-  // Raw po_number/po_status for every row, unfiltered — grouped in JS by
-  // countUniquePOs()/groupRowsIntoPOs() below, the same way monitoring.html's
-  // countUniquePOs() does, so "Total POs" matches the Monitoring page exactly
-  // (an incomplete entry with no PO Number and/or Status still counts as a PO).
-  allPoRows: db.prepare(`SELECT po_number, po_status FROM purchase_orders`),
+  statusCounts: db.prepare(`
+    SELECT po_status, COUNT(DISTINCT po_number) AS cnt
+    FROM purchase_orders
+    WHERE po_status != '' AND po_number != ''
+    GROUP BY po_status
+  `),
 
   savingsData: db.prepare(`
     SELECT supplier_name AS "SUPPLIER'S NAME",
@@ -416,38 +417,6 @@ function findByPoNumber(poNumber) {
   return row ? dbRowToApi(row) : null;
 }
 
-// Counts unique POs exactly the way monitoring.html's countUniquePOs() does:
-// rows sharing a non-empty po_number count as ONE PO; rows with no po_number
-// each count individually (an incomplete/draft entry still counts as a PO).
-function countUniquePOs(rows) {
-  const seen = new Set();
-  let solo = 0;
-  rows.forEach(r => {
-    const key = (r.po_number || "").trim();
-    if (key) seen.add(key);
-    else solo++;
-  });
-  return seen.size + solo;
-}
-
-// One representative row per unique PO — the first-seen row for that
-// po_number (mirrors the table's group-summary row in monitoring.html),
-// plus every blank-po_number row as its own solo entry. Used so the status
-// breakdown buckets each PO exactly once, matching countUniquePOs() above.
-function groupRowsIntoPOs(rows) {
-  const groups = [];
-  const indexByPo = new Map();
-  rows.forEach(r => {
-    const key = (r.po_number || "").trim();
-    if (!key) { groups.push(r); return; }
-    if (!indexByPo.has(key)) {
-      indexByPo.set(key, groups.length);
-      groups.push(r);
-    }
-  });
-  return groups;
-}
-
 function buildDashboard() {
   const MONTH_ORDER = ["JAN","FEB","MAR","APR","MAY","JUN",
                        "JUL","AUG","SEP","OCT","NOV","DEC"];
@@ -467,21 +436,13 @@ function buildDashboard() {
     savings: savingsMap[m],
   }));
 
-  // Total POs + status breakdown, both computed from the same unfiltered
-  // per-PO grouping so they always agree with each other and with the
-  // Monitoring page's own "POs" stat pill. A PO with no status set falls
-  // into Pending (same as an unrecognized status string already did).
-  const allPoRows = stmts.allPoRows.all();
-  const totalPOs  = countUniquePOs(allPoRows);
-  const poGroups  = groupRowsIntoPOs(allPoRows);
-
   const normStatus = { Served: 0, "For Delivery": 0, Pending: 0, Cancelled: 0 };
-  poGroups.forEach(r => {
+  stmts.statusCounts.all().forEach(r => {
     const u = (r.po_status || "").toLowerCase();
-    if      (u.includes("served") || u.includes("complete")) normStatus["Served"]++;
-    else if (u.includes("deliver"))                          normStatus["For Delivery"]++;
-    else if (u.includes("cancel"))                           normStatus["Cancelled"]++;
-    else                                                      normStatus["Pending"]++;
+    if      (u.includes("served") || u.includes("complete")) normStatus["Served"]       += r.cnt;
+    else if (u.includes("deliver"))                          normStatus["For Delivery"] += r.cnt;
+    else if (u.includes("cancel"))                           normStatus["Cancelled"]    += r.cnt;
+    else                                                     normStatus["Pending"]      += r.cnt;
   });
 
   return {
@@ -489,7 +450,6 @@ function buildDashboard() {
     supplierBreakdown: stmts.supplierBreakdown.all(),
     deptSpending:      stmts.deptSpending.all(),
     statusCounts:      normStatus,
-    totalPOs,
     savingsData:       stmts.savingsData.all(),
     rawRows:           stmts.rowCount.get().cnt,
     sheetsDetected:    getMonths(),

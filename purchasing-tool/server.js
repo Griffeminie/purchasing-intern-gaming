@@ -149,6 +149,16 @@ Rules:
 - itemNo: always output an empty string "" for this field, no matter what. Some documents have a leading number column that looks like an item index but is actually something else (a quantity, a product code, a reference ID) depending on the layout — you cannot reliably tell them apart, so don't try. Item numbering is assigned separately by the system, not extracted by you.
 `;
 
+const ACCOUNTABILITY_PROMPT = `
+Extract all rows from this accountability form into a JSON array. Each object must have these exact keys:
+- "store_name": the store name exactly as written
+- "m3_code": the M3 code or store code if visible (null if not present)
+- "accountable_person": the full name of the accountable/custodian employee
+
+Return ONLY valid JSON. No markdown, no code fences, no explanation. Example:
+[{"store_name":"CSI Dagupan 10016","m3_code":"10016","accountable_person":"Janette Ferrer"}]
+`;
+
 const MATCH_PROMPT = `
 You are given items from MULTIPLE supplier quotations for the SAME canvass request.
 Different suppliers describe the same physical product differently
@@ -288,6 +298,18 @@ app.post("/api/gemini/extract", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Gemini: extract one accountability form (store/M3 code/accountable person) ──
+app.post("/api/gemini/extract-accountability", async (req, res) => {
+  try {
+    const { mimeType, base64 } = req.body;
+    if (!mimeType || !base64) return res.status(400).json({ error: "mimeType and base64 required" });
+    const data = await callGeminiRaw({
+      contents: [{ parts: [{ text: ACCOUNTABILITY_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+    });
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Gemini: match items across suppliers ──────────────────────────────────────
 app.post("/api/gemini/match", async (req, res) => {
   try {
@@ -407,6 +429,43 @@ app.post("/api/sheet/:name/add", (req, res) => {
     const id    = insertRow(req.body, month);
     res.json({ success: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Last Purchase lookup (for canvass "Add Last Purchase" per item) ─────────
+// GET /api/purchase-history/search?q=some text
+// Searches item description, supplier name, and PO number across ALL months.
+// Returns only the 4 fields the canvass lookup popup needs.
+app.get("/api/purchase-history/search", (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    let rows;
+    if (q) {
+      rows = db.prepare(`
+        SELECT po_date, supplier_name, po_number, unit_price
+        FROM purchase_orders
+        WHERE item_description LIKE ? OR supplier_name LIKE ? OR po_number LIKE ?
+        ORDER BY po_date DESC
+        LIMIT 50
+      `).all(`%${q}%`, `%${q}%`, `%${q}%`);
+    } else {
+      rows = db.prepare(`
+        SELECT po_date, supplier_name, po_number, unit_price
+        FROM purchase_orders
+        ORDER BY po_date DESC
+        LIMIT 50
+      `).all();
+    }
+    res.json({
+      results: rows.map(r => ({
+        poDate:    r.po_date || "",
+        supplier:  r.supplier_name || "",
+        poNumber:  r.po_number || "",
+        unitPrice: r.unit_price ?? "",
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.put("/api/row/:id", (req, res) => {

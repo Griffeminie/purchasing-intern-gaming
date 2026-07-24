@@ -255,6 +255,25 @@
     .unsaved-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
     .unsaved-actions  { display: flex; gap: 10px; justify-content: center; }
     .unsaved-actions .cbtn { flex: 1; justify-content: center; }
+    .lp-cell { min-width:150px; }
+    .lp-inputs { display:flex; gap:4px; align-items:center; }
+    .lp-inputs input { width:60px !important; min-width:0 !important; }
+    .lp-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:2100; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+    .lp-overlay.visible { opacity:1; pointer-events:auto; }
+    .lp-modal { background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:18px; width:90%; max-width:600px; max-height:75vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.4); }
+    .lp-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .lp-title { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:var(--text); }
+    .lp-close { background:none; border:none; cursor:pointer; color:var(--text-3); padding:4px; }
+    .lp-close:hover { color:var(--red); }
+    .lp-toolbar { margin-bottom:10px; }
+    .lp-toolbar .f-input { margin:0; }
+    .lp-list { flex:1; overflow-y:auto; border:1px solid var(--border); border-radius:8px; }
+    .lp-row-head, .lp-row { display:grid; grid-template-columns:110px 1fr 130px 100px; gap:8px; padding:8px 10px; font-size:12px; align-items:center; }
+    .lp-row-head { font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); background:var(--bg-3); position:sticky; top:0; }
+    .lp-row { cursor:pointer; border-top:1px solid var(--border-2); color:var(--text-2); }
+    .lp-row:hover { background:var(--bg-3); color:var(--text); }
+    .lp-col-price { font-family:var(--font-mono); text-align:right; }
+    .lp-empty, .lp-loading { padding:20px; text-align:center; font-size:12px; color:var(--text-3); font-style:italic; }
   </style>
 </head>
 <body>
@@ -316,6 +335,24 @@
         <button class="lightbox-zoom-btn" onclick="resetLightboxZoom()" title="Reset zoom">
           <i data-lucide="maximize" style="width:13px;height:13px;"></i>
         </button>
+      </div>
+    </div>
+  </div>
+
+<div class="lp-overlay" id="lp-overlay">
+    <div class="lp-modal">
+      <div class="lp-header">
+        <div class="lp-title"><i data-lucide="history" style="width:15px;height:15px;"></i> Last Purchase Lookup</div>
+        <button class="lp-close" onclick="closeLastPurchaseModal()"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
+      </div>
+      <div class="lp-toolbar">
+        <input type="text" id="lp-search-input" class="f-input" placeholder="Search item, supplier, or PO number…" oninput="debouncedLpSearch()" />
+      </div>
+      <div class="lp-list">
+        <div class="lp-row-head">
+          <span>PO Date</span><span>Supplier</span><span>PO Number</span><span style="text-align:right;">Unit Price</span>
+        </div>
+        <div id="lp-results"></div>
       </div>
     </div>
   </div>
@@ -1292,12 +1329,12 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       markDirty();
       const descMap = new Map();
 
-    suppliers.forEach((s, si) => {
+      suppliers.forEach((s, si) => {
         s.items.filter(it => it.checked).forEach(it => {
           const displayName = it.description.trim();
           const key = displayName.toUpperCase(); // case-insensitive grouping
           if (!descMap.has(key)) {
-            const row = { desc:displayName, qty:it.qty||'1', unit:it.unit||'pce' };
+            const row = { desc:displayName, qty:it.qty||'1', unit:it.unit||'pce', lastPrice:'', lastDate:'' };
             suppliers.forEach((_,i) => row[`p${i}`] = '');
             descMap.set(key, row);
           }
@@ -1351,11 +1388,12 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
 
     function renderReviewTable() {
       // Header
-      document.getElementById('review-thead').innerHTML = `<tr>
+    document.getElementById('review-thead').innerHTML = `<tr>
         <th>#</th>
         <th>Description</th>
         <th>Qty</th>
         <th>Unit</th>
+        <th>Last Purchase</th>
         ${suppliers.map((s, i) => `
           <th class="th-s${i % 5}">${escHtml(s.name || `Supplier ${i+1}`)} — Unit Price</th>
           <th class="th-s${i % 5}">Total</th>`).join('')}
@@ -1363,12 +1401,23 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       </tr>`;
 
       // Body
-      document.getElementById('review-tbody').innerHTML = reviewRows.map((r, ri) => `
+        document.getElementById('review-tbody').innerHTML = reviewRows.map((r, ri) => `
         <tr data-idx="${ri}">
           <td style="color:var(--text-3);font-family:var(--font-mono);font-size:11px;">${ri+1}</td>
           <td><input value="${escHtml(r.desc)}" oninput="reviewRows[${ri}].desc=this.value" style="min-width:180px;" /></td>
           <td><input value="${escHtml(r.qty)}"  oninput="reviewRows[${ri}].qty=this.value"  style="width:50px;text-align:center;" /></td>
           <td><input value="${escHtml(r.unit)}" oninput="reviewRows[${ri}].unit=this.value" style="width:50px;text-align:center;" /></td>
+          <td class="lp-cell">
+            <div class="lp-inputs">
+              <input value="${escHtml(r.lastPrice||'')}" placeholder="Price"
+                oninput="reviewRows[${ri}].lastPrice=this.value" title="Last purchase unit price — editable manually or via lookup" />
+              <input value="${escHtml(r.lastDate||'')}" placeholder="Date"
+                oninput="reviewRows[${ri}].lastDate=this.value" title="Last purchase date — editable manually or via lookup" />
+              <button class="btn-icon" onclick="openLastPurchaseModal(${ri})" title="Look up last purchase" style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px;">
+                <i data-lucide="search" style="width:12px;height:12px;"></i>
+              </button>
+            </div>
+          </td>
         ${suppliers.map((_,si) => {
             const val = r[`p${si}`] || '';
             const noMatch = !val && suppliers.length > 1;
@@ -1389,6 +1438,68 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
         </tr>`).join('');
       lucide.createIcons();
     }
+
+    // ── Last Purchase lookup modal ───────────────────────────────────────────
+    let lpTargetRow  = null;
+    let lpResults    = [];
+    let lpDebounce   = null;
+
+    function openLastPurchaseModal(rowIndex) {
+      lpTargetRow = rowIndex;
+      document.getElementById('lp-overlay').classList.add('visible');
+      const search = document.getElementById('lp-search-input');
+      search.value = reviewRows[rowIndex].desc || '';
+      runLpSearch();
+    }
+
+    function closeLastPurchaseModal() {
+      document.getElementById('lp-overlay').classList.remove('visible');
+      lpTargetRow = null;
+    }
+
+    function debouncedLpSearch() {
+      clearTimeout(lpDebounce);
+      lpDebounce = setTimeout(runLpSearch, 300);
+    }
+
+    async function runLpSearch() {
+      const list = document.getElementById('lp-results');
+      const q = document.getElementById('lp-search-input').value.trim();
+      list.innerHTML = `<div class="lp-loading">Searching…</div>`;
+      try {
+        const resp = await fetch(`/api/purchase-history/search?q=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        lpResults = data.results || [];
+
+        if (!lpResults.length) {
+          list.innerHTML = `<div class="lp-empty">No matching purchase history found.</div>`;
+          return;
+        }
+        list.innerHTML = lpResults.map((r, i) => `
+          <div class="lp-row" onclick="selectLastPurchase(${i})">
+            <span>${escHtml(r.poDate || '—')}</span>
+            <span>${escHtml(r.supplier || '—')}</span>
+            <span>${escHtml(r.poNumber || '—')}</span>
+            <span class="lp-col-price">${r.unitPrice !== '' ? '₱' + Number(r.unitPrice).toLocaleString('en-PH', {minimumFractionDigits:2}) : '—'}</span>
+          </div>`).join('');
+      } catch (e) {
+        list.innerHTML = `<div class="lp-empty">Search failed: ${escHtml(e.message)}</div>`;
+      }
+    }
+
+    function selectLastPurchase(i) {
+      const record = lpResults[i];
+      if (lpTargetRow === null || !record) return;
+      reviewRows[lpTargetRow].lastPrice = record.unitPrice !== '' ? String(record.unitPrice) : '';
+      reviewRows[lpTargetRow].lastDate  = record.poDate || '';
+      closeLastPurchaseModal();
+      renderReviewTable();
+      toast('Last purchase applied to this item.', 'success');
+    }
+
+
+
     function calcTotal(price, qty) {
       const p = parseFloat(String(price).replace(/[^0-9.]/g,''));
       const q = parseFloat(String(qty).replace(/[^0-9.]/g,''));
@@ -1416,12 +1527,11 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
     }
 
     function addReviewRow() {
-      const row = { desc:'', qty:'1', unit:'pce' };
+      const row = { desc:'', qty:'1', unit:'pce', lastPrice:'', lastDate:'' };
       suppliers.forEach((_,i) => row[`p${i}`] = '');
       reviewRows.push(row);
       renderReviewTable();
     }
-
     function removeReviewRow(i) {
       reviewRows.splice(i, 1);
       renderReviewTable();
@@ -1479,6 +1589,7 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
         remarks: document.getElementById('remarks').value,
         items: reviewRows.map(r => ({
           desc: r.desc, qty: r.qty, unit: r.unit,
+          lastPrice: r.lastPrice || '', lastDate: r.lastDate || '',
           ...Object.fromEntries(suppliers.map((_,i) => [`p${i+1}`, r[`p${i}`] || ''])),
         })),
         suppliers: suppliers.map(s => ({

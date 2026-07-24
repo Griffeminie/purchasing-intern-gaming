@@ -362,7 +362,6 @@
 <div class="stats-strip">
   <div class="stat-pill"><span class="stat-pill-label">POs</span><span class="stat-pill-value" id="stat-entries">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Total Amount</span><span class="stat-pill-value" id="stat-total">—</span></div>
-  <div class="stat-pill"><span class="stat-pill-label">Net Amount</span><span class="stat-pill-value" id="stat-net" style="color:var(--accent-2);">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Served</span><span class="stat-pill-value" id="stat-served">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Pending</span><span class="stat-pill-value" id="stat-pending">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Cost Savings</span><span class="stat-pill-value" id="stat-savings">—</span></div>
@@ -1014,7 +1013,6 @@ function renderStats() {
 
   document.getElementById("stat-entries").textContent = uniquePOs;
   document.getElementById("stat-total").textContent   = fmt(totalSpend);
-  document.getElementById("stat-net").textContent     = fmt(totalSpend - totalSavings);
   document.getElementById("stat-served").textContent  = servedPOs.size;
   document.getElementById("stat-pending").textContent = pendingPOs.size;
   document.getElementById("stat-savings").textContent = fmt(totalSavings);

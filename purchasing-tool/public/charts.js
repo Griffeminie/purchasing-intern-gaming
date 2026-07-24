@@ -202,9 +202,7 @@ function renderKPIs(data) {
   const total = data.monthlySpending.reduce((s, m) => s + (m.total || 0), 0);
   // Savings = sum of abs(negative items) across all months — calculated in db.js
   const totalSavings = data.monthlySpending.reduce((s, m) => s + (m.savings || 0), 0);
-  // totalPOs is computed server-side the same way monitoring.html's
-  // countUniquePOs() counts POs, so this always matches the Monitoring page.
-  const poCount = data.totalPOs ?? Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
+  const poCount = Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
 
   document.getElementById("kpi-total").textContent    = fmt(total);
   document.getElementById("kpi-po-count").textContent = poCount || data.rawRows || "—";
