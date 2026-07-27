@@ -334,10 +334,21 @@ app.get("/api/suppliers", (req, res) => {
   }
 });
 
-// ── Public health check — no sheet data, just confirms server is up ──────────
+// ── Public health check — confirms both the server AND the SQLite database
+// are reachable (previously this only confirmed the server process was up;
+// there was never an actual Excel-file check here despite the old footer
+// text implying one — this now genuinely verifies the DB connection).
 app.get("/api/health", (req, res) => {
+  let dbConnected = false;
+  try {
+    db.prepare("SELECT 1").get();
+    dbConnected = true;
+  } catch (e) {
+    console.error("[Health] Database check failed:", e.message);
+  }
   res.json({
     ok: true,
+    dbConnected,
     loggedIn: !!(req.session && req.session.user),
     username: req.session.user || null,
   });
@@ -861,6 +872,11 @@ app.post("/api/scanner/extract", scanUpload.array("pdfs", 20), async (req, res) 
   const { execFile } = require("child_process");
   const filePaths = req.files.map(f => f.path);
 
+  console.log(`[Scanner] Received ${filePaths.length} file(s):`);
+  filePaths.forEach(p => console.log(`[Scanner]   - ${p}`));
+  console.log(`[Scanner] Script path: ${path.join(__dirname, "scanner_api.py")}`);
+  console.log(`[Scanner] Python cmd: ${PYTHON_CMD}`);
+
   try {
     const result = await new Promise((resolve, reject) => {
       const py = execFile(
@@ -868,9 +884,17 @@ app.post("/api/scanner/extract", scanUpload.array("pdfs", 20), async (req, res) 
         [path.join(__dirname, "scanner_api.py")],
         { maxBuffer: 10 * 1024 * 1024 },
         (err, stdout, stderr) => {
+          console.log(`[Scanner] ── Python process finished ──`);
+          console.log(`[Scanner] exit err: ${err ? err.message : "none"}`);
+          console.log(`[Scanner] stderr:\n${stderr || "(empty)"}`);
+          console.log(`[Scanner] stdout (first 2000 chars):\n${(stdout || "").substring(0, 2000)}`);
+
           if (err) return reject(new Error(stderr || err.message));
           try { resolve(JSON.parse(stdout)); }
-          catch(e) { reject(new Error("Invalid JSON from scanner_api.py: " + stdout.substring(0, 200))); }
+          catch(e) {
+            console.log(`[Scanner] JSON.parse failed: ${e.message}`);
+            reject(new Error("Invalid JSON from scanner_api.py: " + stdout.substring(0, 200)));
+          }
         }
       );
       py.stdin.write(JSON.stringify(filePaths));
@@ -880,8 +904,10 @@ app.post("/api/scanner/extract", scanUpload.array("pdfs", 20), async (req, res) 
     // Clean up temp uploads after extraction
     filePaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
 
+    console.log(`[Scanner] Success — result keys: ${Object.keys(result).join(", ")}`);
     res.json(result);
   } catch(e) {
+    console.log(`[Scanner] FAILED: ${e.message}`);
     filePaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
     res.status(500).json({ error: e.message });
   }
