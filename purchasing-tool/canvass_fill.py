@@ -34,6 +34,17 @@ def supplier_cols(idx):
     return start, start + 1, start + 2
 
 
+def bold_cell(cell):
+    """Set a cell's font to bold while keeping its existing name/size/color —
+    used as a final pass so every value the script writes (labels, supplier
+    info, prices, totals, remarks, etc.) renders bold, without having to
+    touch font handling at each individual write site."""
+    f = cell.font
+    cell.font = Font(name=f.name, size=f.size, bold=True, italic=f.italic,
+                      color=f.color, underline=f.underline, strike=f.strike,
+                      vertAlign=f.vertAlign)
+
+
 def write_cell(ws, row, col, value):
     """Safely write a value to (row, col). openpyxl only allows writing to
     the TOP-LEFT anchor cell of a merged range — writing to any other cell
@@ -184,6 +195,19 @@ def ensure_supplier_blocks(ws, n_suppliers, bottom_row):
         for r in (NAME_ROW, INFO_ROW, 16, 17, 18, 19, 20, 21, 22, 23):
             ws.merge_cells(start_row=r, start_column=dst_start,
                             end_row=r,   end_column=dst_start + SUP_COL_WIDTH - 1)
+
+        # copy_col_block_style() ONLY copies styling (font/fill/border/
+        # number_format) — it never copies the literal caption text that
+        # lives in the source cells. That text ("SUPPLIER 2", "Unit Price",
+        # "Total", "PRICE") is what makes the block readable as a supplier
+        # column in the first place, so without writing it back in here
+        # every 3rd+ supplier block ends up correctly styled but with
+        # blank headers — numbers show, labels don't. Write them explicitly:
+        supplier_number = BUILTIN_SUPS + k + 1  # 3, 4, 5, ...
+        write_cell(ws, NAME_ROW, dst_start, f"SUPPLIER {supplier_number}")
+        ws.cell(row=13, column=dst_start + 1).value = "Unit Price"
+        ws.cell(row=13, column=dst_start + 2).value = "Total"
+        ws.cell(row=14, column=dst_start).value = "PRICE"
 
 def remove_supplier_block(ws, idx):
     """Completely removes one supplier's 3-column price block (used when
@@ -399,6 +423,7 @@ def main():
             sup.get("num", ""),
         ])) or "Company Name\nLocation\nContact person\nTheir Number"
         write_cell(ws, INFO_ROW, label_col, info)
+        bold_cell(ws.cell(row=INFO_ROW, column=label_col))
 
     # ── Insert item rows above row 15 (NOTHING FOLLOWS) ──────────────────────
     # Template has 1 sample row at row 14. We'll overwrite it with real data
@@ -474,10 +499,15 @@ def main():
                       f"could not parse price {raw_price!r} -> writing blank cell "
                       f"(col {get_column_letter(price_col)})", file=sys.stderr)
 
-            # label_col (K, N, Q, ...) is the static "PRICE" caption baked
-            # into the template on item rows — never written to. Only
-            # price_col gets the real unit price, only total_col gets the
-            # real total formula.
+            # label_col (K, N, Q, ...) is the static "PRICE" caption on item
+            # rows. Row 14 ships with it baked into the template, but any
+            # ROW BEYOND 14 was created by copy_row_style(), which — like
+            # copy_col_block_style() above — only clones styling, not text.
+            # Without this, every item after the first silently lost its
+            # "PRICE" caption for every supplier column, not just supplier 3+.
+            ws.cell(row=r, column=label_col).value = "PRICE"
+            # Only price_col gets the real unit price, only total_col gets
+            # the real total formula.
             ws.cell(row=r, column=price_col).value = price_num
             if price_num is not None:
                 price_letter = get_column_letter(price_col)
