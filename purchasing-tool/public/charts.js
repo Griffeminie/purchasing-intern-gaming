@@ -161,6 +161,30 @@ async function loadDashboard(forceRefresh = false) {
       if (window.lucide) lucide.createIcons();
     }
   }
+
+  // Supplier count is intentionally a separate call — it comes from the
+  // supplier masterlist (same source as suppliers.html), not from the PO/
+  // monitoring data behind /api/dashboard, so it isn't limited to only the
+  // suppliers that happen to have POs on record.
+  loadSupplierCount();
+}
+
+// ─── Supplier count (masterlist, same source as suppliers.html) ───────────────
+async function loadSupplierCount() {
+  const el = document.getElementById("kpi-suppliers");
+  if (!el) return;
+  try {
+    const res = await fetch("/api/suppliers");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : data.suppliers;
+    if (Array.isArray(list)) {
+      el.textContent = list.length.toLocaleString("en-PH");
+      log(`Supplier count: ${list.length} (from /api/suppliers)`, "ok");
+    }
+  } catch (e) {
+    log(`Supplier count fetch failed: ${e.message}`, "warn");
+  }
 }
 
 // ─── Raw API inspector ────────────────────────────────────────────────────────
@@ -207,7 +231,9 @@ function renderKPIs(data) {
   document.getElementById("kpi-total").textContent    = fmt(total);
   document.getElementById("kpi-po-count").textContent = poCount || data.rawRows || "—";
   document.getElementById("kpi-savings").textContent  = fmt(totalSavings);
-  document.getElementById("kpi-suppliers").textContent = (data.supplierBreakdown || []).length || "—";
+  // kpi-suppliers is populated separately by loadSupplierCount() from the
+  // supplier masterlist, not from supplierBreakdown (which only reflects
+  // suppliers that have POs in the monitoring data).
 }
 
 // ─── Monthly Spending ─────────────────────────────────────────────────────────

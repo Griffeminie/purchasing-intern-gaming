@@ -101,8 +101,15 @@ app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ success: true }));
 });
 
-// ── Canvass workbook directory ────────────────────────────────────────────────
-const CANVASS_DIR = "X:\\NEW PURCHASING TEAM\\CANVASS SHEET";
+// ── Canvass workbook directory (fully configurable — no hardcoded default) ───
+function getCanvassDir() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "config.json"), "utf8"));
+    return (cfg.CANVASS_DIR && cfg.CANVASS_DIR.trim()) || null;
+  } catch (e) {
+    return null;
+  }
+}
 
 // ── Gemini config (server-side only — never sent to the browser) ────────────
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
@@ -283,7 +290,23 @@ async function sendExcelJSWorkbook(res, wb, filename) {
 
 // ── Config: tell frontend whether AI is ready — key itself never leaves the server ──
 app.get("/api/config", (req, res) => {
-  res.json({ aiReady: !!getGeminiKey() });
+  res.json({ aiReady: !!getGeminiKey(), canvassDir: getCanvassDir() });
+});
+
+app.post("/api/config/canvass-dir", (req, res) => {
+  try {
+    const newPath = (req.body.path || "").trim();
+    if (!newPath) return res.status(400).json({ error: "Path is required" });
+
+    const configPath = path.join(__dirname, "data", "config.json");
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(configPath, "utf8")); } catch (e) {}
+    cfg.CANVASS_DIR = newPath;
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+
+    console.log(`[Canvass] Directory set to: ${newPath}`);
+    res.json({ success: true, canvassDir: newPath });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Gemini: extract one quotation ─────────────────────────────────────────────
@@ -360,17 +383,83 @@ app.get("/api/health", (req, res) => {
 // them as a dropdown instead of the user typing a path.
 app.get("/api/canvass/books", (req, res) => {
   try {
-    if (!fs.existsSync(CANVASS_DIR)) {
-      console.warn(`[Canvass Books] Directory not found: ${CANVASS_DIR}`);
-      return res.json({ books: [], error: `Directory not found: ${CANVASS_DIR}` });
+    const canvassDir = getCanvassDir();
+    if (!canvassDir) {
+      return res.json({ books: [], unset: true });
     }
-    const files = fs.readdirSync(CANVASS_DIR)
+    if (!fs.existsSync(canvassDir)) {
+      console.warn(`[Canvass Books] Directory not found: ${canvassDir}`);
+      return res.json({ books: [], error: `Directory not found: ${canvassDir}` });
+    }
+    const files = fs.readdirSync(canvassDir)
       .filter(f => f.toLowerCase().endsWith(".xlsx") && !f.startsWith("~$")) // skip Excel lock files
       .sort((a, b) => a.localeCompare(b));
     res.json({ books: files });
   } catch (e) {
     console.error("[Canvass Books] ERROR:", e.message);
     res.status(500).json({ books: [], error: e.message });
+  }
+});
+
+
+// ── Filesystem browser (for picking the canvass folder without typing a path) ──
+// GET /api/fs/browse?path=optional
+// No path -> lists drive roots (Windows) or "/" (other OS).
+// With path -> lists subfolders of that directory only (files are not shown/served).
+app.get("/api/fs/browse", (req, res) => {
+  try {
+    const reqPath = (req.query.path || "").trim();
+
+    // No path given -> show top-level starting points
+    if (!reqPath) {
+      if (process.platform === "win32") {
+        const drives = [];
+        for (let i = 65; i <= 90; i++) {
+          const drivePath = `${String.fromCharCode(i)}:\\`;
+          try { if (fs.existsSync(drivePath)) drives.push(drivePath); } catch (e) {}
+        }
+        return res.json({
+          path: null,
+          parent: null,
+          folders: drives.map(d => ({ name: d, path: d })),
+        });
+      }
+      return res.redirect(`/api/fs/browse?path=${encodeURIComponent("/")}`);
+    }
+
+    if (!fs.existsSync(reqPath) || !fs.statSync(reqPath).isDirectory()) {
+      return res.status(400).json({ error: "Not a valid directory" });
+    }
+
+    const SKIP = new Set(["System Volume Information", "$RECYCLE.BIN"]);
+    let entries;
+    try {
+      entries = fs.readdirSync(reqPath, { withFileTypes: true });
+    } catch (e) {
+      return res.status(403).json({ error: `Cannot read folder: ${e.message}` });
+    }
+
+    const folders = entries
+      .filter(e => e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith("$"))
+      .map(e => ({ name: e.name, path: path.join(reqPath, e.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Windows drive roots (e.g. "X:\") are their own dirname — path.dirname can't
+    // tell us "go back to the drive list" on its own, so special-case it.
+    const isWindowsDriveRoot = process.platform === "win32" && /^[A-Za-z]:\\?$/.test(reqPath);
+    let parent;
+    if (isWindowsDriveRoot) {
+      parent = "__DRIVES__";
+    } else {
+      const parentPath = path.dirname(reqPath);
+      parent = parentPath !== reqPath
+        ? parentPath
+        : (process.platform === "win32" ? "__DRIVES__" : null);
+    }
+
+    res.json({ path: reqPath, parent, folders });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -667,14 +756,18 @@ app.post("/api/canvass/export", async (req, res) => {
   let resolvedTarget = null;
 
   if (appendMode) {
+    const canvassDir = getCanvassDir();
+    if (!canvassDir) {
+      return res.status(400).json({ error: "Canvass folder is not set yet. Set it on the Canvass page first." });
+    }
     const fileName = String(targetBook).trim();
     // Only a bare filename is accepted from the client — always resolved
-    // against CANVASS_DIR server-side, never an arbitrary path, and
-    // blocked from escaping that folder (no slashes/backslashes/"..").
+    // against the configured canvass dir server-side, never an arbitrary
+    // path, and blocked from escaping that folder (no slashes/backslashes/"..").
     if (/[\\/]/.test(fileName) || fileName.includes("..")) {
       return res.status(400).json({ error: "Invalid file name." });
     }
-    resolvedTarget = path.join(CANVASS_DIR, fileName);
+    resolvedTarget = path.join(canvassDir, fileName);
     if (!fs.existsSync(resolvedTarget)) {
       return res.status(404).json({ error: `Workbook not found: ${resolvedTarget}` });
     }
