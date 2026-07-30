@@ -358,6 +358,28 @@
   </div>
   <div class="page-wrap">
 
+    <div class="lp-overlay" id="fb-overlay">
+    <div class="lp-modal">
+      <div class="lp-header">
+        <div class="lp-title"><i data-lucide="folder-open" style="width:15px;height:15px;"></i> Select Canvass Folder</div>
+        <button class="lp-close" onclick="closeFolderBrowser()"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
+      </div>
+      <div class="lp-toolbar" style="display:flex;align-items:center;gap:8px;">
+        <button class="cbtn cbtn-ghost cbtn-sm" onclick="fbGoUp()" id="fb-up-btn" title="Up one level">
+          <i data-lucide="arrow-up" style="width:12px;height:12px;"></i>
+        </button>
+        <span id="fb-current-path" style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);word-break:break-all;">This PC</span>
+      </div>
+      <div class="lp-list" id="fb-list" style="max-height:320px;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+        <button class="cbtn cbtn-ghost" onclick="closeFolderBrowser()">Cancel</button>
+        <button class="cbtn cbtn-amber" onclick="fbSelectCurrent()" id="fb-select-btn" disabled>
+          <i data-lucide="check" style="width:13px;height:13px;"></i> Use This Folder
+        </button>
+      </div>
+    </div>
+  </div>
+
     <div class="page-header" style="padding-top:0;">
       <div class="eyebrow">Feature 3</div>
       <h1>Canvass Sheet</h1>
@@ -389,6 +411,9 @@
             <option value="">+ Create New Canvass</option>
           </select>
           <div class="f-hint" id="cs-target-hint">Loading workbook list…</div>
+          <button class="cbtn cbtn-ghost cbtn-sm" onclick="openFolderBrowser()" style="margin-top:6px;">
+            <i data-lucide="folder-cog" style="width:12px;height:12px;"></i> <span id="canvass-dir-btn-label">Browse for Folder</span>
+          </button>
         </div>
       </div>
     </div>
@@ -1548,15 +1573,24 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
     }
     updateExportButtonLabel();
 
-    // ── Populate the "Excel File" dropdown from CANVASS_DIR on the server ───
+    // ── Populate the "Excel File" dropdown from the configured canvass dir ──
     async function loadTargetBookOptions() {
       const select = document.getElementById('cs-target-book');
       const hint   = document.getElementById('cs-target-hint');
+      const btnLabel = document.getElementById('canvass-dir-btn-label');
       try {
         const resp = await fetch('/api/canvass/books');
         const data = await resp.json();
+
+        if (data.unset) {
+          hint.textContent = 'No canvass folder set yet — click "Browse for Folder" below to choose one.';
+          hint.classList.add('warn');
+          if (btnLabel) btnLabel.textContent = 'Browse for Folder';
+          return;
+        }
         if (data.error) throw new Error(data.error);
 
+        if (btnLabel) btnLabel.textContent = 'Browse for Folder';
         data.books.forEach(name => {
           const opt = document.createElement('option');
           opt.value = name;
@@ -1572,6 +1606,93 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       }
     }
     loadTargetBookOptions();
+
+    // ── Folder browser (server-side directory listing, no manual typing) ────
+    let fbCurrentPath = null; // null = showing drive roots
+
+    async function openFolderBrowser() {
+      document.getElementById('fb-overlay').classList.add('visible');
+      lucide.createIcons();
+
+      // Start from the currently configured folder if one exists, else drive roots
+      let startPath = null;
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        startPath = cfg.canvassDir || null;
+      } catch (e) {}
+
+      fbLoad(startPath);
+    }
+
+    function closeFolderBrowser() {
+      document.getElementById('fb-overlay').classList.remove('visible');
+    }
+
+    async function fbLoad(dirPath) {
+      const list = document.getElementById('fb-list');
+      const pathLabel = document.getElementById('fb-current-path');
+      const upBtn = document.getElementById('fb-up-btn');
+      const selectBtn = document.getElementById('fb-select-btn');
+
+      list.innerHTML = `<div class="lp-loading">Loading…</div>`;
+
+      try {
+        const url = dirPath ? `/api/fs/browse?path=${encodeURIComponent(dirPath)}` : '/api/fs/browse';
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        fbCurrentPath = data.path; // null when showing drive roots
+        pathLabel.textContent = data.path || 'This PC';
+        upBtn.disabled = !data.parent;
+        upBtn.dataset.parent = data.parent || '';
+        selectBtn.disabled = !data.path; // can't "select" the drive-list view itself
+
+        if (!data.folders.length) {
+          list.innerHTML = `<div class="lp-empty">No subfolders here.</div>`;
+          return;
+        }
+
+        list.innerHTML = data.folders.map(f => `
+          <div class="lp-row" style="grid-template-columns:1fr;" onclick="fbLoad('${f.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">
+            <span style="display:flex;align-items:center;gap:8px;">
+              <i data-lucide="folder" style="width:14px;height:14px;color:var(--text-3);"></i> ${escHtml(f.name)}
+            </span>
+          </div>`).join('');
+        lucide.createIcons();
+      } catch (e) {
+        list.innerHTML = `<div class="lp-empty">Couldn't load folder: ${escHtml(e.message)}</div>`;
+      }
+    }
+
+    function fbGoUp() {
+      const upBtn = document.getElementById('fb-up-btn');
+      const parent = upBtn.dataset.parent;
+      // "__DRIVES__" is a sentinel meaning "go back to the drive list", not a real path
+      fbLoad(parent && parent !== '__DRIVES__' ? parent : null);
+    }
+
+    async function fbSelectCurrent() {
+      if (!fbCurrentPath) return;
+      try {
+        const resp = await fetch('/api/config/canvass-dir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: fbCurrentPath }),
+        });
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        toast('Canvass folder saved.', 'success');
+        closeFolderBrowser();
+        document.getElementById('cs-target-book')
+          .querySelectorAll('option:not(:first-child)').forEach(o => o.remove());
+        document.getElementById('cs-target-hint').classList.remove('warn');
+        loadTargetBookOptions();
+      } catch (e) {
+        toast('Failed to save folder: ' + e.message, 'error');
+      }
+    }
 
     // ── Export ───────────────────────────────────────────────────────────────
     async function exportToTemplate() {
