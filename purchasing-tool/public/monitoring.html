@@ -604,7 +604,7 @@ function countUniquePOs(rows) {
 // ═══════════════════════════════════════════════════════════════════════════
 function renderTabs() {
   const c = document.getElementById("month-tabs");
-  let html = `<button class="month-tab ${currentMonth === "ALL" ? "active" : ""}" data-month="ALL" style="border-color:var(--accent-2);">
+  let html = `<button class="month-tab ${currentMonth === "ALL" ? "active" : ""}" data-month="ALL">
       ALL
     </button>`;
   html += MONTH_ORDER.map(m => `
