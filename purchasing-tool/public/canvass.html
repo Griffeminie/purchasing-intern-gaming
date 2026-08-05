@@ -82,9 +82,16 @@
       position:sticky; top:20px; background:var(--bg-3); border:1px solid var(--border);
       border-radius:10px; padding:12px; max-height:calc(100vh - 40px); overflow:auto;
     }
-    .sup-preview-img-wrap { overflow:hidden; border-radius:8px; background:var(--bg); cursor:grab; }
+    .sup-preview-img-wrap {
+      overflow:hidden; border-radius:8px; background:var(--bg); cursor:grab;
+      display:flex; align-items:center; justify-content:center; min-height:320px;
+    }
     .sup-preview-img-wrap.dragging { cursor:grabbing; }
-    .sup-preview-img-wrap img { width:100%; height:auto; display:block; transform-origin:0 0; transition:transform .05s linear; user-select:none; -webkit-user-drag:none; }
+    .sup-preview-img-wrap img {
+      max-width:100%; max-height:70vh; width:auto; height:auto; display:block;
+      transform-origin:center center; transition:transform .05s linear;
+      user-select:none; -webkit-user-drag:none;
+    }
     .sup-preview-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
     .sup-preview-name { font-size:11px; font-family:var(--font-mono); color:var(--text-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
     .sup-preview-zoom { display:flex; align-items:center; gap:6px; flex-shrink:0; }
@@ -580,6 +587,10 @@ Rules:
 - Output plain human-readable text only. Never include special/control tokens such as <bos>, <eos>, <pad>, <unk>, <start_of_turn>, <end_of_turn> or any other bracketed tokens anywhere in a value.
 - Return ONLY JSON. No markdown. No explanations. No code blocks.
 - itemNo: always output an empty string "" for this field, no matter what. Some documents have a leading number column that looks like an item index but is actually something else (a quantity, a product code, a reference ID) depending on the layout — you cannot reliably tell them apart, so don't try. Item numbering is assigned separately by the system, not extracted by you.
+- VAT must always say VAT INCLUSIVE, VAT EXCLUSIVE, or STANDARD RATE. If the document does not explicitly say one of those three phrases, output an empty string "" for VAT.
+- Names such as Florence Aguilar or Princess Mae Pili or Marylen Joy Bagtas are not the contact person, they are the person that will be receiving the quotation. Only output the name of the person that is printed on the document as the contact person, signatory, or sales rep.
+- if the delivery address says california clothing of any sort output of the delivery address will simply be "GUESS(HEAD OFFICE)"
+- Grand total or ANY of the fields that require values must be IN NUMBERS ONLY. If the document does not explicitly show a number, output an empty string "" for that field.
 `;
 
 const ITEM_MATCH_PROMPT = `
@@ -988,17 +999,20 @@ activeSupplierId = id;
           <input class="ext-item-input ext-desc" type="text" value="${escHtml(it.description)}" placeholder="Description"
             title="${it.originalDescription ? 'Originally: ' + escHtml(it.originalDescription) : ''}"
             oninput="updItem('${it.id}',${s.id},'description',this.value)" />
-          <input class="ext-item-input ext-qty" type="text" value="${escHtml(it.qty)}" placeholder="Qty"
-            oninput="updItem('${it.id}',${s.id},'qty',this.value)" />
+          <input class="ext-item-input ext-qty" type="text" inputmode="decimal" value="${escHtml(it.qty)}" placeholder="Qty"
+            oninput="updItem('${it.id}',${s.id},'qty',sanitizeNumeric(this));recalcGrandTotal(${s.id})" />
           <input class="ext-item-input ext-unit" type="text" value="${escHtml(it.unit)}" placeholder="Unit"
             oninput="updItem('${it.id}',${s.id},'unit',this.value)" />
           <span class="ext-item-currency">₱</span>
-          <input class="ext-item-input ext-price" type="text" value="${escHtml(it.unitPrice)}" placeholder="0.00"
-            oninput="updItem('${it.id}',${s.id},'unitPrice',this.value)" />
+          <input class="ext-item-input ext-price" type="text" inputmode="decimal" value="${escHtml(it.unitPrice)}" placeholder="0.00"
+            oninput="updItem('${it.id}',${s.id},'unitPrice',sanitizeNumeric(this));recalcGrandTotal(${s.id})" />
         <button class="ext-item-remove" onclick="removeItem('${it.id}',${s.id})" title="Remove item">
             <i data-lucide="x" style="width:12px;height:12px;"></i>
           </button>
         </div>`).join('') : `<div class="sup-empty-items">No items yet — extract a quotation or add one manually.</div>`;
+      const gt = computeSupplierGrandTotal(s);
+      s.terms.grandTotal = gt.total.toFixed(2);
+      const gtHint = `Items ₱${gt.itemsTotal.toFixed(2)} + Delivery ₱${gt.delivery.toFixed(2)} − Discount ₱${gt.discountAmt.toFixed(2)}`;
 
       return `
         <div class="sup-split">
@@ -1036,20 +1050,43 @@ activeSupplierId = id;
 
         <div class="terms-grid">
           <div class="terms-title">Quotation Terms (auto-filled — edit if needed)</div>
-          ${[
-            ['deliveryCharge','Delivery Charge','FREE if none'],
-            ['discount',      'Discount',       'Blank if none'],
-            ['grandTotal',    'Grand Total',    ''],
-            ['creditTerms',   'Credit Terms',   'e.g. 50% DP 50% FP'],
-            ['vat',           'VAT',            'VAT Inclusive'],
-            ['availability',  'Availability',   'Days before delivery'],
-          ].map(([k, lbl, ph]) => `
-            <div class="f-group">
-              <label class="f-label">${lbl}</label>
-              <input class="f-input" type="text" placeholder="${ph}"
-                value="${escHtml(s.terms[k] || '')}"
-                oninput="updSupTerm(${s.id},'${k}',this.value)" />
-            </div>`).join('')}
+
+          <div class="f-group">
+            <label class="f-label">Delivery Charge</label>
+            <input class="f-input" type="text" inputmode="decimal" placeholder="0 if free"
+              value="${escHtml(s.terms.deliveryCharge || '')}"
+              oninput="updSupTerm(${s.id},'deliveryCharge',sanitizeNumeric(this));recalcGrandTotal(${s.id})" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">Discount</label>
+            <input class="f-input" type="text" placeholder="e.g. 500 or 10% — blank if none"
+              value="${escHtml(s.terms.discount || '')}"
+              oninput="updSupTerm(${s.id},'discount',sanitizeDiscount(this));recalcGrandTotal(${s.id})" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">Grand Total <span style="opacity:.6;font-weight:400;">(auto)</span></label>
+            <input class="f-input" type="text" id="terms-grandtotal-${s.id}" readonly
+              style="cursor:not-allowed;opacity:.85;" value="${escHtml(s.terms.grandTotal || '0.00')}" />
+            <div class="f-hint" id="terms-grandtotal-hint-${s.id}">${gtHint}</div>
+          </div>
+          <div class="f-group">
+            <label class="f-label">Credit Terms</label>
+            <input class="f-input" type="text" placeholder="e.g. 50% DP 50% FP"
+              value="${escHtml(s.terms.creditTerms || '')}"
+              oninput="updSupTerm(${s.id},'creditTerms',this.value)" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">VAT</label>
+            <input class="f-input" type="text" placeholder="VAT Inclusive"
+              value="${escHtml(s.terms.vat || '')}"
+              oninput="updSupTerm(${s.id},'vat',this.value)" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">Availability</label>
+            <input class="f-input" type="text" placeholder="Days before delivery"
+              value="${escHtml(s.terms.availability || '')}"
+              oninput="updSupTerm(${s.id},'availability',this.value)" />
+          </div>
           <div class="f-group full">
             <label class="f-label">Delivery Address</label>
             <input class="f-input" type="text" placeholder="Address"
@@ -1063,18 +1100,86 @@ activeSupplierId = id;
 
 // ── Full-size supplier preview (inline, no lightbox) ───────────────────
     function getPreviewState(s) {
-      if (!s._pv) s._pv = { zoom: 1, panX: 0, panY: 0 };
+      if (!s._pv) s._pv = { zoom: 1, panX: 0, panY: 0, rotate: 0 };
       return s._pv;
     }
 
+    // ── Numeric validation helpers ──────────────────────────────────────────
+    function sanitizeNumeric(el) {
+      let v = el.value.replace(/[^0-9.]/g, '');
+      const parts = v.split('.');
+      if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('');
+      el.value = v;
+      return v;
+    }
+
+    // Allows plain numbers OR a trailing "%" (e.g. "500" or "10%") for discount
+    function sanitizeDiscount(el) {
+      let v = el.value;
+      const hasPct = v.trim().endsWith('%');
+      v = v.replace(/[^0-9.%]/g, '');
+      let base = v.replace(/%/g, '');
+      const parts = base.split('.');
+      if (parts.length > 2) base = parts[0] + '.' + parts.slice(1).join('');
+      v = base + (hasPct ? '%' : '');
+      el.value = v;
+      return v;
+    }
+
+    // ── Live grand-total calculation (items total + delivery − discount) ────
+    function computeSupplierGrandTotal(s) {
+      const itemsTotal = s.items.filter(it => it.checked).reduce((sum, it) => {
+        const q = parseFloat(String(it.qty).replace(/[^0-9.]/g, '')) || 0;
+        const p = parseFloat(String(it.unitPrice).replace(/[^0-9.]/g, '')) || 0;
+        return sum + (q * p);
+      }, 0);
+
+      const delivery = parseFloat(String(s.terms.deliveryCharge || '').replace(/[^0-9.]/g, '')) || 0;
+
+      const discountRaw = String(s.terms.discount || '').trim();
+      let discountAmt = 0;
+      if (discountRaw.endsWith('%')) {
+        const pct = parseFloat(discountRaw) || 0;
+        discountAmt = (itemsTotal + delivery) * (pct / 100);
+      } else {
+        discountAmt = parseFloat(discountRaw.replace(/[^0-9.]/g, '')) || 0;
+      }
+
+      const total = Math.max(0, itemsTotal + delivery - discountAmt);
+      return { itemsTotal, delivery, discountAmt, total };
+    }
+
+    // Updates just the grand-total input + hint in place (no full re-render,
+    // so it doesn't steal focus while the user is typing elsewhere)
+    function recalcGrandTotal(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const gt = computeSupplierGrandTotal(s);
+      s.terms.grandTotal = gt.total.toFixed(2);
+
+      const input = document.getElementById(`terms-grandtotal-${supplierId}`);
+      if (input) input.value = s.terms.grandTotal;
+
+      const hint = document.getElementById(`terms-grandtotal-hint-${supplierId}`);
+      if (hint) hint.textContent =
+        `Items ₱${gt.itemsTotal.toFixed(2)} + Delivery ₱${gt.delivery.toFixed(2)} − Discount ₱${gt.discountAmt.toFixed(2)}`;
+    }
     function applyPreviewTransform(supplierId) {
       const s = suppliers.find(x => x.id === supplierId);
       if (!s) return;
       const st = getPreviewState(s);
       const img = document.getElementById(`sup-preview-img-${supplierId}`);
-      if (img) img.style.transform = `translate(${st.panX}px, ${st.panY}px) scale(${st.zoom})`;
+      if (img) img.style.transform = `translate(${st.panX}px, ${st.panY}px) rotate(${st.rotate}deg) scale(${st.zoom})`;
       const pct = document.getElementById(`sup-preview-zoom-pct-${supplierId}`);
       if (pct) pct.textContent = Math.round(st.zoom * 100) + '%';
+    }
+
+    function rotateSupplierPreview(supplierId, delta) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.rotate = (st.rotate + delta + 360) % 360;
+      applyPreviewTransform(supplierId);
     }
 
     function zoomSupplierPreview(supplierId, delta) {
@@ -1090,7 +1195,7 @@ activeSupplierId = id;
       const s = suppliers.find(x => x.id === supplierId);
       if (!s) return;
       const st = getPreviewState(s);
-      st.zoom = 1; st.panX = 0; st.panY = 0;
+      st.zoom = 1; st.panX = 0; st.panY = 0; st.rotate = 0;
       applyPreviewTransform(supplierId);
     }
 
@@ -1166,16 +1271,14 @@ activeSupplierId = id;
           <div class="sup-preview-controls">
             <span class="sup-preview-name" title="${escHtml(s.sourceFile.name)}">${escHtml(s.sourceFile.name)}</span>
             <div class="sup-preview-zoom">
+              <button class="sp-zoom-btn" onclick="rotateSupplierPreview(${s.id}, -90)" title="Rotate left"><i data-lucide="rotate-ccw" style="width:11px;height:11px;"></i></button>
+              <button class="sp-zoom-btn" onclick="rotateSupplierPreview(${s.id}, 90)" title="Rotate right"><i data-lucide="rotate-cw" style="width:11px;height:11px;"></i></button>
               <button class="sp-zoom-btn" onclick="zoomSupplierPreview(${s.id}, -0.25)" title="Zoom out"><i data-lucide="minus" style="width:11px;height:11px;"></i></button>
               <span class="sp-zoom-pct" id="sup-preview-zoom-pct-${s.id}">100%</span>
               <button class="sp-zoom-btn" onclick="zoomSupplierPreview(${s.id}, 0.25)" title="Zoom in"><i data-lucide="plus" style="width:11px;height:11px;"></i></button>
-              <button class="sp-zoom-btn" onclick="resetSupplierPreviewZoom(${s.id})" title="Reset zoom"><i data-lucide="maximize" style="width:11px;height:11px;"></i></button>
+              <button class="sp-zoom-btn" onclick="resetSupplierPreviewZoom(${s.id})" title="Reset zoom/rotation"><i data-lucide="maximize" style="width:11px;height:11px;"></i></button>
             </div>
-          </div>
-          <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin-top:8px;width:100%;justify-content:center;">
-            <i data-lucide="refresh-cw" style="width:12px;height:12px;"></i> Replace Image
-            <input type="file" accept="image/*,application/pdf" style="display:none;" onchange="attachImageToSupplier(${s.id}, event)" />
-          </label>`;
+          </div>`;
       }
 
       // PDF — embed inline, with a fallback "open in tab" action
