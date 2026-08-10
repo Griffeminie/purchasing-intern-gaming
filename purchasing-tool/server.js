@@ -43,7 +43,7 @@ console.log(`[Python] Using command: ${PYTHON_CMD}`);
 const {
   insertRow, updateRow, updateRowFile, deleteRow,
   getByMonth, getMonths, findByPoNumber, buildDashboard, db,
-  getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
+  getAllSuppliers, importSuppliers, upsertSuppliers, insertSupplier, updateSupplier,
   deleteSupplier, supplierCount,
 } = require("./db");
 bootLog('require("./db")  <- SQLite open/schema/migrations happen here');
@@ -477,6 +477,69 @@ app.post("/api/suppliers/import", (req, res) => {
     res.json({ success: true, count });
   } catch (e) {
     console.error("[Suppliers] ERROR importing:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Update List: re-read the master Excel file and MERGE into SQLite ─────────
+// Unlike /api/suppliers/import (full wipe+replace), this adds new suppliers,
+// adds any new contact numbers onto existing ones, and updates other fields
+// only where the source file actually changed — nothing existing is deleted.
+const SUPPLIER_HEADER_ALIASES = {
+  NO:              ["NO", "NO.", "#"],
+  COMPANY:         ["COMPANY", "COMPANY NAME", "SUPPLIER", "SUPPLIER NAME"],
+  CATEGORY:        ["CATEGORY"],
+  CATEGORY2:       ["CATEGORY2", "SUB-CATEGORY", "SUB CATEGORY"],
+  OLD_NAME:        ["OLD_NAME", "OLD NAME"],
+  CURRENT_NAME:    ["CURRENT_NAME", "CURRENT NAME"],
+  CONTACT_NAME:    ["CONTACT_NAME", "CONTACT NAME", "CONTACT PERSON"],
+  ADDRESS:         ["ADDRESS"],
+  REGION:          ["REGION"],
+  CONTACT_DETAILS: ["CONTACT_DETAILS", "CONTACT NO.", "CONTACT NO", "CONTACT NUMBER", "CONTACT DETAILS"],
+  EMAIL:           ["EMAIL", "E-MAIL"],
+  EMAIL2:          ["EMAIL2", "E-MAIL 2", "EMAIL 2"],
+  STATUS:          ["STATUS"],
+};
+
+function normalizeSupplierRow(raw) {
+  const rawKeys = Object.keys(raw);
+  const out = {};
+  for (const [target, aliases] of Object.entries(SUPPLIER_HEADER_ALIASES)) {
+    const foundKey = rawKeys.find(k => aliases.includes(String(k).trim().toUpperCase()));
+    out[target] = foundKey ? raw[foundKey] : "";
+  }
+  return out;
+}
+
+app.post("/api/suppliers/update", (req, res) => {
+  try {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "config.json"), "utf8")); } catch (e) {}
+
+    const masterPath = (cfg.SUPPLIER_XLSX_PATH && cfg.SUPPLIER_XLSX_PATH.trim())
+      || path.join(__dirname, "data", "supplier-masterlist.xlsx");
+
+    if (!fs.existsSync(masterPath)) {
+      return res.status(404).json({ error: `Master file not found: ${masterPath}` });
+    }
+
+    const wb    = xlsx.readFile(masterPath);
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows  = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+
+    const normalized = rows
+      .map(normalizeSupplierRow)
+      .filter(r => (r.COMPANY || r.CURRENT_NAME));
+
+    if (!normalized.length) {
+      return res.status(400).json({ error: "No usable rows found in the master file (missing COMPANY/CURRENT_NAME columns?)." });
+    }
+
+    const result = upsertSuppliers(normalized);
+    console.log(`[Suppliers] Update List: +${result.inserted} new, ${result.updated} updated, ${result.unchanged} unchanged, ${result.skipped} skipped (of ${result.total})`);
+    res.json({ success: true, ...result, source: masterPath });
+  } catch (e) {
+    console.error("[Suppliers] ERROR updating:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
