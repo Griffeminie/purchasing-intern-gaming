@@ -43,7 +43,7 @@ console.log(`[Python] Using command: ${PYTHON_CMD}`);
 const {
   insertRow, updateRow, updateRowFile, deleteRow,
   getByMonth, getMonths, findByPoNumber, buildDashboard, db,
-  getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
+  getAllSuppliers, importSuppliers, upsertSuppliers, insertSupplier, updateSupplier,
   deleteSupplier, supplierCount,
 } = require("./db");
 bootLog('require("./db")  <- SQLite open/schema/migrations happen here');
@@ -101,8 +101,15 @@ app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ success: true }));
 });
 
-// ── Canvass workbook directory ────────────────────────────────────────────────
-const CANVASS_DIR = "X:\\NEW PURCHASING TEAM\\CANVASS SHEET";
+// ── Canvass workbook directory (fully configurable — no hardcoded default) ───
+function getCanvassDir() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "config.json"), "utf8"));
+    return (cfg.CANVASS_DIR && cfg.CANVASS_DIR.trim()) || null;
+  } catch (e) {
+    return null;
+  }
+}
 
 // ── Gemini config (server-side only — never sent to the browser) ────────────
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
@@ -283,7 +290,23 @@ async function sendExcelJSWorkbook(res, wb, filename) {
 
 // ── Config: tell frontend whether AI is ready — key itself never leaves the server ──
 app.get("/api/config", (req, res) => {
-  res.json({ aiReady: !!getGeminiKey() });
+  res.json({ aiReady: !!getGeminiKey(), canvassDir: getCanvassDir() });
+});
+
+app.post("/api/config/canvass-dir", (req, res) => {
+  try {
+    const newPath = (req.body.path || "").trim();
+    if (!newPath) return res.status(400).json({ error: "Path is required" });
+
+    const configPath = path.join(__dirname, "data", "config.json");
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(configPath, "utf8")); } catch (e) {}
+    cfg.CANVASS_DIR = newPath;
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+
+    console.log(`[Canvass] Directory set to: ${newPath}`);
+    res.json({ success: true, canvassDir: newPath });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Gemini: extract one quotation ─────────────────────────────────────────────
@@ -360,17 +383,83 @@ app.get("/api/health", (req, res) => {
 // them as a dropdown instead of the user typing a path.
 app.get("/api/canvass/books", (req, res) => {
   try {
-    if (!fs.existsSync(CANVASS_DIR)) {
-      console.warn(`[Canvass Books] Directory not found: ${CANVASS_DIR}`);
-      return res.json({ books: [], error: `Directory not found: ${CANVASS_DIR}` });
+    const canvassDir = getCanvassDir();
+    if (!canvassDir) {
+      return res.json({ books: [], unset: true });
     }
-    const files = fs.readdirSync(CANVASS_DIR)
+    if (!fs.existsSync(canvassDir)) {
+      console.warn(`[Canvass Books] Directory not found: ${canvassDir}`);
+      return res.json({ books: [], error: `Directory not found: ${canvassDir}` });
+    }
+    const files = fs.readdirSync(canvassDir)
       .filter(f => f.toLowerCase().endsWith(".xlsx") && !f.startsWith("~$")) // skip Excel lock files
       .sort((a, b) => a.localeCompare(b));
     res.json({ books: files });
   } catch (e) {
     console.error("[Canvass Books] ERROR:", e.message);
     res.status(500).json({ books: [], error: e.message });
+  }
+});
+
+
+// ── Filesystem browser (for picking the canvass folder without typing a path) ──
+// GET /api/fs/browse?path=optional
+// No path -> lists drive roots (Windows) or "/" (other OS).
+// With path -> lists subfolders of that directory only (files are not shown/served).
+app.get("/api/fs/browse", (req, res) => {
+  try {
+    const reqPath = (req.query.path || "").trim();
+
+    // No path given -> show top-level starting points
+    if (!reqPath) {
+      if (process.platform === "win32") {
+        const drives = [];
+        for (let i = 65; i <= 90; i++) {
+          const drivePath = `${String.fromCharCode(i)}:\\`;
+          try { if (fs.existsSync(drivePath)) drives.push(drivePath); } catch (e) {}
+        }
+        return res.json({
+          path: null,
+          parent: null,
+          folders: drives.map(d => ({ name: d, path: d })),
+        });
+      }
+      return res.redirect(`/api/fs/browse?path=${encodeURIComponent("/")}`);
+    }
+
+    if (!fs.existsSync(reqPath) || !fs.statSync(reqPath).isDirectory()) {
+      return res.status(400).json({ error: "Not a valid directory" });
+    }
+
+    const SKIP = new Set(["System Volume Information", "$RECYCLE.BIN"]);
+    let entries;
+    try {
+      entries = fs.readdirSync(reqPath, { withFileTypes: true });
+    } catch (e) {
+      return res.status(403).json({ error: `Cannot read folder: ${e.message}` });
+    }
+
+    const folders = entries
+      .filter(e => e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith("$"))
+      .map(e => ({ name: e.name, path: path.join(reqPath, e.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Windows drive roots (e.g. "X:\") are their own dirname — path.dirname can't
+    // tell us "go back to the drive list" on its own, so special-case it.
+    const isWindowsDriveRoot = process.platform === "win32" && /^[A-Za-z]:\\?$/.test(reqPath);
+    let parent;
+    if (isWindowsDriveRoot) {
+      parent = "__DRIVES__";
+    } else {
+      const parentPath = path.dirname(reqPath);
+      parent = parentPath !== reqPath
+        ? parentPath
+        : (process.platform === "win32" ? "__DRIVES__" : null);
+    }
+
+    res.json({ path: reqPath, parent, folders });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -388,6 +477,69 @@ app.post("/api/suppliers/import", (req, res) => {
     res.json({ success: true, count });
   } catch (e) {
     console.error("[Suppliers] ERROR importing:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Update List: re-read the master Excel file and MERGE into SQLite ─────────
+// Unlike /api/suppliers/import (full wipe+replace), this adds new suppliers,
+// adds any new contact numbers onto existing ones, and updates other fields
+// only where the source file actually changed — nothing existing is deleted.
+const SUPPLIER_HEADER_ALIASES = {
+  NO:              ["NO", "NO.", "#"],
+  COMPANY:         ["COMPANY", "COMPANY NAME", "SUPPLIER", "SUPPLIER NAME"],
+  CATEGORY:        ["CATEGORY"],
+  CATEGORY2:       ["CATEGORY2", "SUB-CATEGORY", "SUB CATEGORY"],
+  OLD_NAME:        ["OLD_NAME", "OLD NAME"],
+  CURRENT_NAME:    ["CURRENT_NAME", "CURRENT NAME"],
+  CONTACT_NAME:    ["CONTACT_NAME", "CONTACT NAME", "CONTACT PERSON"],
+  ADDRESS:         ["ADDRESS"],
+  REGION:          ["REGION"],
+  CONTACT_DETAILS: ["CONTACT_DETAILS", "CONTACT NO.", "CONTACT NO", "CONTACT NUMBER", "CONTACT DETAILS"],
+  EMAIL:           ["EMAIL", "E-MAIL"],
+  EMAIL2:          ["EMAIL2", "E-MAIL 2", "EMAIL 2"],
+  STATUS:          ["STATUS"],
+};
+
+function normalizeSupplierRow(raw) {
+  const rawKeys = Object.keys(raw);
+  const out = {};
+  for (const [target, aliases] of Object.entries(SUPPLIER_HEADER_ALIASES)) {
+    const foundKey = rawKeys.find(k => aliases.includes(String(k).trim().toUpperCase()));
+    out[target] = foundKey ? raw[foundKey] : "";
+  }
+  return out;
+}
+
+app.post("/api/suppliers/update", (req, res) => {
+  try {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "data", "config.json"), "utf8")); } catch (e) {}
+
+    const masterPath = (cfg.SUPPLIER_XLSX_PATH && cfg.SUPPLIER_XLSX_PATH.trim())
+      || path.join(__dirname, "data", "supplier-masterlist.xlsx");
+
+    if (!fs.existsSync(masterPath)) {
+      return res.status(404).json({ error: `Master file not found: ${masterPath}` });
+    }
+
+    const wb    = xlsx.readFile(masterPath);
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows  = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+
+    const normalized = rows
+      .map(normalizeSupplierRow)
+      .filter(r => (r.COMPANY || r.CURRENT_NAME));
+
+    if (!normalized.length) {
+      return res.status(400).json({ error: "No usable rows found in the master file (missing COMPANY/CURRENT_NAME columns?)." });
+    }
+
+    const result = upsertSuppliers(normalized);
+    console.log(`[Suppliers] Update List: +${result.inserted} new, ${result.updated} updated, ${result.unchanged} unchanged, ${result.skipped} skipped (of ${result.total})`);
+    res.json({ success: true, ...result, source: masterPath });
+  } catch (e) {
+    console.error("[Suppliers] ERROR updating:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -667,14 +819,18 @@ app.post("/api/canvass/export", async (req, res) => {
   let resolvedTarget = null;
 
   if (appendMode) {
+    const canvassDir = getCanvassDir();
+    if (!canvassDir) {
+      return res.status(400).json({ error: "Canvass folder is not set yet. Set it on the Canvass page first." });
+    }
     const fileName = String(targetBook).trim();
     // Only a bare filename is accepted from the client — always resolved
-    // against CANVASS_DIR server-side, never an arbitrary path, and
-    // blocked from escaping that folder (no slashes/backslashes/"..").
+    // against the configured canvass dir server-side, never an arbitrary
+    // path, and blocked from escaping that folder (no slashes/backslashes/"..").
     if (/[\\/]/.test(fileName) || fileName.includes("..")) {
       return res.status(400).json({ error: "Invalid file name." });
     }
-    resolvedTarget = path.join(CANVASS_DIR, fileName);
+    resolvedTarget = path.join(canvassDir, fileName);
     if (!fs.existsSync(resolvedTarget)) {
       return res.status(404).json({ error: `Workbook not found: ${resolvedTarget}` });
     }

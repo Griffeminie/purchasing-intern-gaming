@@ -76,44 +76,42 @@
     .file-retry { background:none; border:none; cursor:pointer; color:var(--accent-2); padding:4px; border-radius:4px; display:flex; align-items:center; transition:color .15s, transform .2s; }
     .file-retry:hover { color:var(--accent); transform:rotate(180deg); }
 
-    /* ── Source quotation preview (per supplier tab) ─────────── */
-    .sup-source { display:flex; align-items:center; gap:12px; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-2); }
-    .sup-source-thumb {
-      width:64px; height:64px; border-radius:8px; border:1px solid var(--border); overflow:hidden;
-      cursor:pointer; flex-shrink:0; background:var(--bg-3); display:flex; align-items:center;
-      justify-content:center; transition:border-color .15s;
+    /* ── Full quotation preview (side-by-side with fields) ────── */
+    .sup-split { display:grid; grid-template-columns:minmax(280px,42%) 1fr; gap:20px; align-items:start; }
+    .sup-preview-col {
+      position:sticky; top:20px; background:var(--bg-3); border:1px solid var(--border);
+      border-radius:10px; padding:12px; max-height:calc(100vh - 40px); overflow:auto;
     }
-    .sup-source-thumb:hover { border-color:var(--accent); }
-    .sup-source-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
-    .sup-source-thumb-pdf { color:var(--accent-2); }
-    .sup-source-info { flex:1; display:flex; flex-direction:column; gap:6px; min-width:0; }
-    .sup-source-name { font-size:12px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-mono); }
-    .sup-source-empty {
-      display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-3); font-style:italic;
-      margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-2);
+    .sup-preview-img-wrap {
+      overflow:hidden; border-radius:8px; background:var(--bg); cursor:grab;
+      display:flex; align-items:center; justify-content:center; min-height:320px;
+    }
+    .sup-preview-img-wrap.dragging { cursor:grabbing; }
+    .sup-preview-img-wrap img {
+      max-width:100%; max-height:70vh; width:auto; height:auto; display:block;
+      transform-origin:center center; transition:transform .05s linear;
+      user-select:none; -webkit-user-drag:none;
+    }
+    .sup-preview-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
+    .sup-preview-name { font-size:11px; font-family:var(--font-mono); color:var(--text-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+    .sup-preview-zoom { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .sp-zoom-btn {
+      background:var(--bg-2); border:1px solid var(--border); color:var(--text);
+      width:24px; height:24px; border-radius:50%; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; transition:border-color .15s, color .15s; flex-shrink:0;
+    }
+    .sp-zoom-btn:hover { border-color:var(--accent); color:var(--accent); }
+    .sp-zoom-pct { font-size:10px; font-family:var(--font-mono); color:var(--text-3); min-width:34px; text-align:center; }
+    .sup-preview-pdf, .sup-preview-empty {
+      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+      padding:40px 16px; text-align:center;
+    }
+    @media(max-width:900px) {
+      .sup-split { grid-template-columns:1fr; }
+      .sup-preview-col { position:static; max-height:60vh; }
     }
 
-    /* ── Lightbox (full-size quotation preview) ──────────────── */
-.lightbox-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.82); display:none; align-items:center; justify-content:center; z-index:1000; padding:30px; }
-    .lightbox-inner { position:relative; max-width:90vw; max-height:90vh; display:flex; flex-direction:column; align-items:center; gap:10px; }
-    .lightbox-img-wrap { max-width:90vw; max-height:80vh; overflow:hidden; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,0.5); cursor:grab; }
-    .lightbox-img-wrap.dragging { cursor:grabbing; }
-    .lightbox-inner img { display:block; max-width:90vw; max-height:80vh; transform-origin:center center; transition:transform .08s linear; user-select:none; -webkit-user-drag:none; }
-    .lightbox-close {
-      position:absolute; top:-14px; right:-14px; background:var(--bg-2); border:1px solid var(--border);
-      color:var(--text); width:30px; height:30px; border-radius:50%; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-    }
-    .lightbox-close:hover { border-color:var(--accent); color:var(--accent); }
-    .lightbox-caption { font-size:12px; color:#ccc; font-family:var(--font-mono); }
-    .lightbox-zoom-controls { display:flex; align-items:center; gap:6px; }
-    .lightbox-zoom-btn {
-      background:var(--bg-2); border:1px solid var(--border); color:var(--text);
-      width:28px; height:28px; border-radius:50%; cursor:pointer;
-      display:flex; align-items:center; justify-content:center; transition:border-color .15s, color .15s;
-    }
-    .lightbox-zoom-btn:hover { border-color:var(--accent); color:var(--accent); }
-    .lightbox-zoom-pct { font-size:11px; font-family:var(--font-mono); color:#ccc; min-width:38px; text-align:center; }
+    
     /* ── Supplier tabs ──────────────────────────────────────── */
     .sup-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:0; border-bottom:1px solid var(--border); }
     .sup-tab {
@@ -313,32 +311,7 @@
     </div>
   </div>
 
-  <div class="toast-container" id="toasts"></div>
-
-<div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightbox()">
-    <div class="lightbox-inner" onclick="event.stopPropagation()">
-      <button class="lightbox-close" onclick="closeLightbox()" title="Close">
-        <i data-lucide="x" style="width:14px;height:14px;"></i>
-      </button>
-      <div class="lightbox-img-wrap" id="lightbox-img-wrap">
-        <img id="lightbox-img" src="" alt="quotation full preview" />
-      </div>
-      <div class="lightbox-caption" id="lightbox-caption"></div>
-      <div class="lightbox-zoom-controls">
-        <button class="lightbox-zoom-btn" onclick="zoomLightbox(-0.25)" title="Zoom out">
-          <i data-lucide="minus" style="width:13px;height:13px;"></i>
-        </button>
-        <span class="lightbox-zoom-pct" id="lightbox-zoom-pct">100%</span>
-        <button class="lightbox-zoom-btn" onclick="zoomLightbox(0.25)" title="Zoom in">
-          <i data-lucide="plus" style="width:13px;height:13px;"></i>
-        </button>
-        <button class="lightbox-zoom-btn" onclick="resetLightboxZoom()" title="Reset zoom">
-          <i data-lucide="maximize" style="width:13px;height:13px;"></i>
-        </button>
-      </div>
-    </div>
-  </div>
-
+<div class="toast-container" id="toasts"></div>
 <div class="lp-overlay" id="lp-overlay">
     <div class="lp-modal">
       <div class="lp-header">
@@ -357,6 +330,28 @@
     </div>
   </div>
   <div class="page-wrap">
+
+    <div class="lp-overlay" id="fb-overlay">
+    <div class="lp-modal">
+      <div class="lp-header">
+        <div class="lp-title"><i data-lucide="folder-open" style="width:15px;height:15px;"></i> Select Canvass Folder</div>
+        <button class="lp-close" onclick="closeFolderBrowser()"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
+      </div>
+      <div class="lp-toolbar" style="display:flex;align-items:center;gap:8px;">
+        <button class="cbtn cbtn-ghost cbtn-sm" onclick="fbGoUp()" id="fb-up-btn" title="Up one level">
+          <i data-lucide="arrow-up" style="width:12px;height:12px;"></i>
+        </button>
+        <span id="fb-current-path" style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);word-break:break-all;">This PC</span>
+      </div>
+      <div class="lp-list" id="fb-list" style="max-height:320px;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+        <button class="cbtn cbtn-ghost" onclick="closeFolderBrowser()">Cancel</button>
+        <button class="cbtn cbtn-amber" onclick="fbSelectCurrent()" id="fb-select-btn" disabled>
+          <i data-lucide="check" style="width:13px;height:13px;"></i> Use This Folder
+        </button>
+      </div>
+    </div>
+  </div>
 
     <div class="page-header" style="padding-top:0;">
       <div class="eyebrow">Feature 3</div>
@@ -389,6 +384,9 @@
             <option value="">+ Create New Canvass</option>
           </select>
           <div class="f-hint" id="cs-target-hint">Loading workbook list…</div>
+          <button class="cbtn cbtn-ghost cbtn-sm" onclick="openFolderBrowser()" style="margin-top:6px;">
+            <i data-lucide="folder-cog" style="width:12px;height:12px;"></i> <span id="canvass-dir-btn-label">Browse for Folder</span>
+          </button>
         </div>
       </div>
     </div>
@@ -589,6 +587,10 @@ Rules:
 - Output plain human-readable text only. Never include special/control tokens such as <bos>, <eos>, <pad>, <unk>, <start_of_turn>, <end_of_turn> or any other bracketed tokens anywhere in a value.
 - Return ONLY JSON. No markdown. No explanations. No code blocks.
 - itemNo: always output an empty string "" for this field, no matter what. Some documents have a leading number column that looks like an item index but is actually something else (a quantity, a product code, a reference ID) depending on the layout — you cannot reliably tell them apart, so don't try. Item numbering is assigned separately by the system, not extracted by you.
+- VAT must always say VAT INCLUSIVE, VAT EXCLUSIVE, or STANDARD RATE. If the document does not explicitly say one of those three phrases, output an empty string "" for VAT.
+- Names such as Florence Aguilar or Princess Mae Pili or Marylen Joy Bagtas are not the contact person, they are the person that will be receiving the quotation. Only output the name of the person that is printed on the document as the contact person, signatory, or sales rep.
+- if the delivery address says california clothing of any sort output of the delivery address will simply be "GUESS(HEAD OFFICE)"
+- Grand total or ANY of the fields that require values must be IN NUMBERS ONLY. If the document does not explicitly show a number, output an empty string "" for that field.
 `;
 
 const ITEM_MATCH_PROMPT = `
@@ -997,57 +999,25 @@ activeSupplierId = id;
           <input class="ext-item-input ext-desc" type="text" value="${escHtml(it.description)}" placeholder="Description"
             title="${it.originalDescription ? 'Originally: ' + escHtml(it.originalDescription) : ''}"
             oninput="updItem('${it.id}',${s.id},'description',this.value)" />
-          <input class="ext-item-input ext-qty" type="text" value="${escHtml(it.qty)}" placeholder="Qty"
-            oninput="updItem('${it.id}',${s.id},'qty',this.value)" />
+          <input class="ext-item-input ext-qty" type="text" inputmode="decimal" value="${escHtml(it.qty)}" placeholder="Qty"
+            oninput="updItem('${it.id}',${s.id},'qty',sanitizeNumeric(this));recalcGrandTotal(${s.id})" />
           <input class="ext-item-input ext-unit" type="text" value="${escHtml(it.unit)}" placeholder="Unit"
             oninput="updItem('${it.id}',${s.id},'unit',this.value)" />
           <span class="ext-item-currency">₱</span>
-          <input class="ext-item-input ext-price" type="text" value="${escHtml(it.unitPrice)}" placeholder="0.00"
-            oninput="updItem('${it.id}',${s.id},'unitPrice',this.value)" />
+          <input class="ext-item-input ext-price" type="text" inputmode="decimal" value="${escHtml(it.unitPrice)}" placeholder="0.00"
+            oninput="updItem('${it.id}',${s.id},'unitPrice',sanitizeNumeric(this));recalcGrandTotal(${s.id})" />
         <button class="ext-item-remove" onclick="removeItem('${it.id}',${s.id})" title="Remove item">
             <i data-lucide="x" style="width:12px;height:12px;"></i>
           </button>
         </div>`).join('') : `<div class="sup-empty-items">No items yet — extract a quotation or add one manually.</div>`;
+      const gt = computeSupplierGrandTotal(s);
+      s.terms.grandTotal = gt.total.toFixed(2);
+      const gtHint = `Items ₱${gt.itemsTotal.toFixed(2)} + Delivery ₱${gt.delivery.toFixed(2)} − Discount ₱${gt.discountAmt.toFixed(2)}`;
 
-      const sourceHtml = s.sourceFile
-        ? (s.sourceFile.type.startsWith('image/')
-            ? `<div class="sup-source">
-                 <div class="sup-source-thumb" onclick="showSupplierLightbox(${s.id})" title="View full size">
-                   <img src="${s.sourceFile.dataUrl}" alt="quotation preview" />
-                 </div>
-                 <div class="sup-source-info">
-                   <span class="sup-source-name">${escHtml(s.sourceFile.name)}</span>
-                   <button class="cbtn cbtn-ghost cbtn-sm" onclick="showSupplierLightbox(${s.id})" style="align-self:flex-start;">
-                     <i data-lucide="zoom-in" style="width:12px;height:12px;"></i> View Full Size
-                   </button>
-                 </div>
-               </div>`
-            : `<div class="sup-source">
-                 <div class="sup-source-thumb sup-source-thumb-pdf" onclick="openSupplierPdf(${s.id})" title="Open PDF">
-                   <i data-lucide="file-text" style="width:24px;height:24px;"></i>
-                 </div>
-                 <div class="sup-source-info">
-                   <span class="sup-source-name">${escHtml(s.sourceFile.name)}</span>
-                   <button class="cbtn cbtn-ghost cbtn-sm" onclick="openSupplierPdf(${s.id})" style="align-self:flex-start;">
-                     <i data-lucide="external-link" style="width:12px;height:12px;"></i> Open PDF
-                   </button>
-                 </div>
-               </div>`)
-        : `<div class="sup-source-empty">
-     <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin:0;" title="Attach a quotation image or PDF to this supplier">
-       <i data-lucide="image-plus" style="width:13px;height:13px;"></i> + Add Image
-       <input type="file" accept="image/*,application/pdf" style="display:none;"
-         onchange="attachImageToSupplier(${s.id}, event)" />
-     </label>
-     <span style="color:var(--border);font-size:11px;">|</span>
-     <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin:0;" title="Use camera">
-       <i data-lucide="camera" style="width:13px;height:13px;"></i> Camera
-       <input type="file" accept="image/*" capture="environment" style="display:none;"
-         onchange="attachImageToSupplier(${s.id}, event)" />
-     </label>
-   </div>`;
       return `
-        ${sourceHtml}
+        <div class="sup-split">
+        <div class="sup-preview-col">${buildSupplierPreviewHtml(s)}</div>
+        <div class="sup-fields-col">
         <div class="sup-fields-grid">
           <input class="f-input full" type="text" placeholder="Company name" value="${escHtml(s.name)}"
             oninput="updSup(${s.id},'name',this.value)" />
@@ -1080,98 +1050,247 @@ activeSupplierId = id;
 
         <div class="terms-grid">
           <div class="terms-title">Quotation Terms (auto-filled — edit if needed)</div>
-          ${[
-            ['deliveryCharge','Delivery Charge','FREE if none'],
-            ['discount',      'Discount',       'Blank if none'],
-            ['grandTotal',    'Grand Total',    ''],
-            ['creditTerms',   'Credit Terms',   'e.g. 50% DP 50% FP'],
-            ['vat',           'VAT',            'VAT Inclusive'],
-            ['availability',  'Availability',   'Days before delivery'],
-          ].map(([k, lbl, ph]) => `
-            <div class="f-group">
-              <label class="f-label">${lbl}</label>
-              <input class="f-input" type="text" placeholder="${ph}"
-                value="${escHtml(s.terms[k] || '')}"
-                oninput="updSupTerm(${s.id},'${k}',this.value)" />
-            </div>`).join('')}
+
+          <div class="f-group">
+            <label class="f-label">Delivery Charge</label>
+            <input class="f-input" type="text" inputmode="decimal" placeholder="0 if free"
+              value="${escHtml(s.terms.deliveryCharge || '')}"
+              oninput="updSupTerm(${s.id},'deliveryCharge',sanitizeNumeric(this));recalcGrandTotal(${s.id})" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">Discount</label>
+            <input class="f-input" type="text" placeholder="e.g. 500 or 10% — blank if none"
+              value="${escHtml(s.terms.discount || '')}"
+              oninput="updSupTerm(${s.id},'discount',sanitizeDiscount(this));recalcGrandTotal(${s.id})" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">Grand Total <span style="opacity:.6;font-weight:400;">(auto)</span></label>
+            <input class="f-input" type="text" id="terms-grandtotal-${s.id}" readonly
+              style="cursor:not-allowed;opacity:.85;" value="${escHtml(s.terms.grandTotal || '0.00')}" />
+            <div class="f-hint" id="terms-grandtotal-hint-${s.id}">${gtHint}</div>
+          </div>
+          <div class="f-group">
+            <label class="f-label">Credit Terms</label>
+            <input class="f-input" type="text" placeholder="e.g. 50% DP 50% FP"
+              value="${escHtml(s.terms.creditTerms || '')}"
+              oninput="updSupTerm(${s.id},'creditTerms',this.value)" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">VAT</label>
+            <input class="f-input" type="text" placeholder="VAT Inclusive"
+              value="${escHtml(s.terms.vat || '')}"
+              oninput="updSupTerm(${s.id},'vat',this.value)" />
+          </div>
+          <div class="f-group">
+            <label class="f-label">Availability</label>
+            <input class="f-input" type="text" placeholder="Days before delivery"
+              value="${escHtml(s.terms.availability || '')}"
+              oninput="updSupTerm(${s.id},'availability',this.value)" />
+          </div>
           <div class="f-group full">
             <label class="f-label">Delivery Address</label>
             <input class="f-input" type="text" placeholder="Address"
               value="${escHtml(s.terms.deliveryAddress || '')}"
               oninput="updSupTerm(${s.id},'deliveryAddress',this.value)" />
           </div>
+        </div>
+        </div>
         </div>`;
     }
 
-let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lbDragStartY = 0;
+// ── Full-size supplier preview (inline, no lightbox) ───────────────────
+    function getPreviewState(s) {
+      if (!s._pv) s._pv = { zoom: 1, panX: 0, panY: 0, rotate: 0 };
+      return s._pv;
+    }
 
-    function showSupplierLightbox(supplierId) {
+    // ── Numeric validation helpers ──────────────────────────────────────────
+    function sanitizeNumeric(el) {
+      let v = el.value.replace(/[^0-9.]/g, '');
+      const parts = v.split('.');
+      if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('');
+      el.value = v;
+      return v;
+    }
+
+    // Allows plain numbers OR a trailing "%" (e.g. "500" or "10%") for discount
+    function sanitizeDiscount(el) {
+      let v = el.value;
+      const hasPct = v.trim().endsWith('%');
+      v = v.replace(/[^0-9.%]/g, '');
+      let base = v.replace(/%/g, '');
+      const parts = base.split('.');
+      if (parts.length > 2) base = parts[0] + '.' + parts.slice(1).join('');
+      v = base + (hasPct ? '%' : '');
+      el.value = v;
+      return v;
+    }
+
+    // ── Live grand-total calculation (items total + delivery − discount) ────
+    function computeSupplierGrandTotal(s) {
+      const itemsTotal = s.items.filter(it => it.checked).reduce((sum, it) => {
+        const q = parseFloat(String(it.qty).replace(/[^0-9.]/g, '')) || 0;
+        const p = parseFloat(String(it.unitPrice).replace(/[^0-9.]/g, '')) || 0;
+        return sum + (q * p);
+      }, 0);
+
+      const delivery = parseFloat(String(s.terms.deliveryCharge || '').replace(/[^0-9.]/g, '')) || 0;
+
+      const discountRaw = String(s.terms.discount || '').trim();
+      let discountAmt = 0;
+      if (discountRaw.endsWith('%')) {
+        const pct = parseFloat(discountRaw) || 0;
+        discountAmt = (itemsTotal + delivery) * (pct / 100);
+      } else {
+        discountAmt = parseFloat(discountRaw.replace(/[^0-9.]/g, '')) || 0;
+      }
+
+      const total = Math.max(0, itemsTotal + delivery - discountAmt);
+      return { itemsTotal, delivery, discountAmt, total };
+    }
+
+    // Updates just the grand-total input + hint in place (no full re-render,
+    // so it doesn't steal focus while the user is typing elsewhere)
+    function recalcGrandTotal(supplierId) {
       const s = suppliers.find(x => x.id === supplierId);
-      if (!s || !s.sourceFile) return;
-      document.getElementById('lightbox-img').src = s.sourceFile.dataUrl;
-      document.getElementById('lightbox-caption').textContent = s.sourceFile.name || '';
-      document.getElementById('lightbox-overlay').style.display = 'flex';
-      resetLightboxZoom();
+      if (!s) return;
+      const gt = computeSupplierGrandTotal(s);
+      s.terms.grandTotal = gt.total.toFixed(2);
+
+      const input = document.getElementById(`terms-grandtotal-${supplierId}`);
+      if (input) input.value = s.terms.grandTotal;
+
+      const hint = document.getElementById(`terms-grandtotal-hint-${supplierId}`);
+      if (hint) hint.textContent =
+        `Items ₱${gt.itemsTotal.toFixed(2)} + Delivery ₱${gt.delivery.toFixed(2)} − Discount ₱${gt.discountAmt.toFixed(2)}`;
+    }
+    function applyPreviewTransform(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      const img = document.getElementById(`sup-preview-img-${supplierId}`);
+      if (img) img.style.transform = `translate(${st.panX}px, ${st.panY}px) rotate(${st.rotate}deg) scale(${st.zoom})`;
+      const pct = document.getElementById(`sup-preview-zoom-pct-${supplierId}`);
+      if (pct) pct.textContent = Math.round(st.zoom * 100) + '%';
     }
 
-    function closeLightbox() {
-      const overlay = document.getElementById('lightbox-overlay');
-      if (overlay.style.display === 'none') return;
-      overlay.style.display = 'none';
-      document.getElementById('lightbox-img').src = '';
-      resetLightboxZoom();
+    function rotateSupplierPreview(supplierId, delta) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.rotate = (st.rotate + delta + 360) % 360;
+      applyPreviewTransform(supplierId);
     }
 
-    function applyLightboxTransform() {
-      const img = document.getElementById('lightbox-img');
-      img.style.transform = `translate(${lbPanX}px, ${lbPanY}px) scale(${lbZoom})`;
-      document.getElementById('lightbox-zoom-pct').textContent = Math.round(lbZoom * 100) + '%';
+    function zoomSupplierPreview(supplierId, delta) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.zoom = Math.min(4, Math.max(1, +(st.zoom + delta).toFixed(2)));
+      if (st.zoom === 1) { st.panX = 0; st.panY = 0; }
+      applyPreviewTransform(supplierId);
     }
 
-    function zoomLightbox(delta) {
-      lbZoom = Math.min(4, Math.max(1, +(lbZoom + delta).toFixed(2)));
-      if (lbZoom === 1) { lbPanX = 0; lbPanY = 0; }
-      applyLightboxTransform();
+    function resetSupplierPreviewZoom(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.zoom = 1; st.panX = 0; st.panY = 0; st.rotate = 0;
+      applyPreviewTransform(supplierId);
     }
 
-    function resetLightboxZoom() {
-      lbZoom = 1; lbPanX = 0; lbPanY = 0;
-      applyLightboxTransform();
+    function toggleSupplierPreviewDblClick(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      getPreviewState(s).zoom === 1 ? zoomSupplierPreview(supplierId, 1) : resetSupplierPreviewZoom(supplierId);
     }
 
-    (function initLightboxZoomInteractions() {
-      document.addEventListener('DOMContentLoaded', () => {
-        const wrap = document.getElementById('lightbox-img-wrap');
-        if (!wrap) return;
+    function handleSupplierWheel(e, supplierId) {
+      e.preventDefault();
+      zoomSupplierPreview(supplierId, e.deltaY < 0 ? 0.25 : -0.25);
+    }
 
-        wrap.addEventListener('wheel', e => {
-          e.preventDefault();
-          zoomLightbox(e.deltaY < 0 ? 0.25 : -0.25);
-        }, { passive:false });
+    let spDragging = false, spDragSupplierId = null, spDragStartX = 0, spDragStartY = 0;
 
-        wrap.addEventListener('dblclick', () => {
-          lbZoom === 1 ? zoomLightbox(1) : resetLightboxZoom();
-        });
+    function startSupplierPan(e, supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      if (st.zoom <= 1) return;
+      spDragging = true;
+      spDragSupplierId = supplierId;
+      spDragStartX = e.clientX - st.panX;
+      spDragStartY = e.clientY - st.panY;
+      const wrap = document.getElementById(`sup-preview-wrap-${supplierId}`);
+      if (wrap) wrap.classList.add('dragging');
+    }
 
-        wrap.addEventListener('mousedown', e => {
-          if (lbZoom <= 1) return;
-          lbDragging = true;
-          lbDragStartX = e.clientX - lbPanX;
-          lbDragStartY = e.clientY - lbPanY;
-          wrap.classList.add('dragging');
-        });
-        window.addEventListener('mousemove', e => {
-          if (!lbDragging) return;
-          lbPanX = e.clientX - lbDragStartX;
-          lbPanY = e.clientY - lbDragStartY;
-          applyLightboxTransform();
-        });
-        window.addEventListener('mouseup', () => {
-          lbDragging = false;
-          wrap.classList.remove('dragging');
-        });
-      });
-    })();
+    window.addEventListener('mousemove', e => {
+      if (!spDragging) return;
+      const s = suppliers.find(x => x.id === spDragSupplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.panX = e.clientX - spDragStartX;
+      st.panY = e.clientY - spDragStartY;
+      applyPreviewTransform(spDragSupplierId);
+    });
+    window.addEventListener('mouseup', () => {
+      if (!spDragging) return;
+      const wrap = document.getElementById(`sup-preview-wrap-${spDragSupplierId}`);
+      if (wrap) wrap.classList.remove('dragging');
+      spDragging = false;
+      spDragSupplierId = null;
+    });
+
+    function buildSupplierPreviewHtml(s) {
+      if (!s.sourceFile) {
+        return `<div class="sup-preview-empty">
+          <i data-lucide="image-off" style="width:32px;height:32px;opacity:0.3;"></i>
+          <div style="font-size:13px;color:var(--text-2);">No quotation attached</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+            <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin:0;">
+              <i data-lucide="image-plus" style="width:13px;height:13px;"></i> Add Image
+              <input type="file" accept="image/*,application/pdf" style="display:none;" onchange="attachImageToSupplier(${s.id}, event)" />
+            </label>
+            <label class="cbtn cbtn-ghost cbtn-sm" style="cursor:pointer;margin:0;">
+              <i data-lucide="camera" style="width:13px;height:13px;"></i> Camera
+              <input type="file" accept="image/*" capture="environment" style="display:none;" onchange="attachImageToSupplier(${s.id}, event)" />
+            </label>
+          </div>
+        </div>`;
+      }
+
+      if (s.sourceFile.type.startsWith('image/')) {
+        return `
+          <div class="sup-preview-img-wrap" id="sup-preview-wrap-${s.id}"
+            onwheel="handleSupplierWheel(event, ${s.id})"
+            onmousedown="startSupplierPan(event, ${s.id})"
+            ondblclick="toggleSupplierPreviewDblClick(${s.id})">
+            <img id="sup-preview-img-${s.id}" src="${s.sourceFile.dataUrl}" alt="quotation" />
+          </div>
+          <div class="sup-preview-controls">
+            <span class="sup-preview-name" title="${escHtml(s.sourceFile.name)}">${escHtml(s.sourceFile.name)}</span>
+            <div class="sup-preview-zoom">
+              <button class="sp-zoom-btn" onclick="rotateSupplierPreview(${s.id}, -90)" title="Rotate left"><i data-lucide="rotate-ccw" style="width:11px;height:11px;"></i></button>
+              <button class="sp-zoom-btn" onclick="rotateSupplierPreview(${s.id}, 90)" title="Rotate right"><i data-lucide="rotate-cw" style="width:11px;height:11px;"></i></button>
+              <button class="sp-zoom-btn" onclick="zoomSupplierPreview(${s.id}, -0.25)" title="Zoom out"><i data-lucide="minus" style="width:11px;height:11px;"></i></button>
+              <span class="sp-zoom-pct" id="sup-preview-zoom-pct-${s.id}">100%</span>
+              <button class="sp-zoom-btn" onclick="zoomSupplierPreview(${s.id}, 0.25)" title="Zoom in"><i data-lucide="plus" style="width:11px;height:11px;"></i></button>
+              <button class="sp-zoom-btn" onclick="resetSupplierPreviewZoom(${s.id})" title="Reset zoom/rotation"><i data-lucide="maximize" style="width:11px;height:11px;"></i></button>
+            </div>
+          </div>`;
+      }
+
+      // PDF — embed inline, with a fallback "open in tab" action
+      return `
+        <iframe src="${s.sourceFile.dataUrl}" style="width:100%;height:70vh;border:none;border-radius:8px;background:#fff;"></iframe>
+        <div class="sup-preview-controls">
+          <span class="sup-preview-name" title="${escHtml(s.sourceFile.name)}">${escHtml(s.sourceFile.name)}</span>
+          <button class="cbtn cbtn-ghost cbtn-sm" onclick="openSupplierPdf(${s.id})">
+            <i data-lucide="external-link" style="width:12px;height:12px;"></i> Open in Tab
+          </button>
+        </div>`;
+    }
 
     function openSupplierPdf(supplierId) {
       const s = suppliers.find(x => x.id === supplierId);
@@ -1183,7 +1302,7 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       a.click();
     }
 
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
 
     function setActiveSupplier(id) {
       activeSupplierId = id;
@@ -1548,15 +1667,24 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
     }
     updateExportButtonLabel();
 
-    // ── Populate the "Excel File" dropdown from CANVASS_DIR on the server ───
+    // ── Populate the "Excel File" dropdown from the configured canvass dir ──
     async function loadTargetBookOptions() {
       const select = document.getElementById('cs-target-book');
       const hint   = document.getElementById('cs-target-hint');
+      const btnLabel = document.getElementById('canvass-dir-btn-label');
       try {
         const resp = await fetch('/api/canvass/books');
         const data = await resp.json();
+
+        if (data.unset) {
+          hint.textContent = 'No canvass folder set yet — click "Browse for Folder" below to choose one.';
+          hint.classList.add('warn');
+          if (btnLabel) btnLabel.textContent = 'Browse for Folder';
+          return;
+        }
         if (data.error) throw new Error(data.error);
 
+        if (btnLabel) btnLabel.textContent = 'Browse for Folder';
         data.books.forEach(name => {
           const opt = document.createElement('option');
           opt.value = name;
@@ -1572,6 +1700,93 @@ let lbZoom = 1, lbPanX = 0, lbPanY = 0, lbDragging = false, lbDragStartX = 0, lb
       }
     }
     loadTargetBookOptions();
+
+    // ── Folder browser (server-side directory listing, no manual typing) ────
+    let fbCurrentPath = null; // null = showing drive roots
+
+    async function openFolderBrowser() {
+      document.getElementById('fb-overlay').classList.add('visible');
+      lucide.createIcons();
+
+      // Start from the currently configured folder if one exists, else drive roots
+      let startPath = null;
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        startPath = cfg.canvassDir || null;
+      } catch (e) {}
+
+      fbLoad(startPath);
+    }
+
+    function closeFolderBrowser() {
+      document.getElementById('fb-overlay').classList.remove('visible');
+    }
+
+    async function fbLoad(dirPath) {
+      const list = document.getElementById('fb-list');
+      const pathLabel = document.getElementById('fb-current-path');
+      const upBtn = document.getElementById('fb-up-btn');
+      const selectBtn = document.getElementById('fb-select-btn');
+
+      list.innerHTML = `<div class="lp-loading">Loading…</div>`;
+
+      try {
+        const url = dirPath ? `/api/fs/browse?path=${encodeURIComponent(dirPath)}` : '/api/fs/browse';
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        fbCurrentPath = data.path; // null when showing drive roots
+        pathLabel.textContent = data.path || 'This PC';
+        upBtn.disabled = !data.parent;
+        upBtn.dataset.parent = data.parent || '';
+        selectBtn.disabled = !data.path; // can't "select" the drive-list view itself
+
+        if (!data.folders.length) {
+          list.innerHTML = `<div class="lp-empty">No subfolders here.</div>`;
+          return;
+        }
+
+        list.innerHTML = data.folders.map(f => `
+          <div class="lp-row" style="grid-template-columns:1fr;" onclick="fbLoad('${f.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">
+            <span style="display:flex;align-items:center;gap:8px;">
+              <i data-lucide="folder" style="width:14px;height:14px;color:var(--text-3);"></i> ${escHtml(f.name)}
+            </span>
+          </div>`).join('');
+        lucide.createIcons();
+      } catch (e) {
+        list.innerHTML = `<div class="lp-empty">Couldn't load folder: ${escHtml(e.message)}</div>`;
+      }
+    }
+
+    function fbGoUp() {
+      const upBtn = document.getElementById('fb-up-btn');
+      const parent = upBtn.dataset.parent;
+      // "__DRIVES__" is a sentinel meaning "go back to the drive list", not a real path
+      fbLoad(parent && parent !== '__DRIVES__' ? parent : null);
+    }
+
+    async function fbSelectCurrent() {
+      if (!fbCurrentPath) return;
+      try {
+        const resp = await fetch('/api/config/canvass-dir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: fbCurrentPath }),
+        });
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        toast('Canvass folder saved.', 'success');
+        closeFolderBrowser();
+        document.getElementById('cs-target-book')
+          .querySelectorAll('option:not(:first-child)').forEach(o => o.remove());
+        document.getElementById('cs-target-hint').classList.remove('warn');
+        loadTargetBookOptions();
+      } catch (e) {
+        toast('Failed to save folder: ' + e.message, 'error');
+      }
+    }
 
     // ── Export ───────────────────────────────────────────────────────────────
     async function exportToTemplate() {

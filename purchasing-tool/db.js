@@ -201,6 +201,32 @@ function supplierRowToDb(row, i) {
   };
 }
 
+// ── Helper: merge two "contact details" strings without losing existing numbers ─
+// Splits on common separators, dedupes by the digits-only form so "0917 123 4567"
+// and "09171234567" count as the same number, keeps existing order, and appends
+// any genuinely new numbers found in the incoming data.
+function mergeContactNumbers(oldRaw, newRaw) {
+  const parseNums = (raw) =>
+    String(raw || "")
+      .split(/[\s'\/,]+/)
+      .map((n) => n.trim())
+      .filter(Boolean);
+
+  const oldNums = parseNums(oldRaw);
+  const newNums = parseNums(newRaw);
+  const seen = new Set(oldNums.map((n) => n.replace(/\D/g, "")));
+  const merged = [...oldNums];
+
+  for (const n of newNums) {
+    const digits = n.replace(/\D/g, "");
+    if (digits && !seen.has(digits)) {
+      merged.push(n);
+      seen.add(digits);
+    }
+  }
+  return merged.join(" / ");
+}
+
 // ── Helper: supplier DB row → API object ──────────────────────────────────────
 function dbRowToSupplierApi(row) {
   return {
@@ -372,6 +398,10 @@ const stmts = {
   supplierDeleteAll: db.prepare(`DELETE FROM suppliers`),
   supplierAll: db.prepare(`SELECT * FROM suppliers ORDER BY CAST(no AS INTEGER) ASC, id ASC`),
   supplierCount: db.prepare(`SELECT COUNT(*) AS cnt FROM suppliers`),
+  // Match key for merge/upsert — company name, case/whitespace-insensitive
+  supplierFindByCompany: db.prepare(`
+    SELECT * FROM suppliers WHERE UPPER(TRIM(company)) = ? LIMIT 1
+  `),
 };
 
 // ── Exported query functions ──────────────────────────────────────────────────
@@ -475,6 +505,72 @@ function importSuppliers(list) {
   return list.length;
 }
 
+// Merge/upsert — used by the "Update List" button. Unlike importSuppliers()
+// (which wipes and replaces the whole table), this preserves every existing
+// row: it matches incoming records to existing ones by COMPANY name, adds
+// any brand-new contact numbers onto the existing ones (never drops old
+// numbers), updates other fields only when the incoming value is non-empty
+// and actually different, and inserts genuinely new suppliers with the next
+// available NO. Existing suppliers not present in the incoming list are left
+// untouched (never deleted).
+function upsertSuppliers(list) {
+  let inserted = 0, updated = 0, unchanged = 0, skipped = 0;
+
+  const run = db.transaction((rows) => {
+    let nextNo = stmts.supplierAll.all().reduce((max, r) => {
+      const n = parseInt(r.no, 10);
+      return isNaN(n) ? max : Math.max(max, n);
+    }, 0);
+
+    const FIELDS = [
+      "category", "category2", "old_name", "current_name", "contact_name",
+      "address", "region", "email", "email2", "status",
+    ];
+
+    rows.forEach((row, i) => {
+      const incoming = supplierRowToDb(row, i);
+      const companyKey = (incoming.company || incoming.current_name || "").trim();
+      if (!companyKey) { skipped++; return; }
+
+      const existing = stmts.supplierFindByCompany.get(companyKey.toUpperCase());
+
+      if (!existing) {
+        nextNo += 1;
+        incoming.no = incoming.no && incoming.no.trim() ? incoming.no : String(nextNo);
+        stmts.supplierInsert.run(incoming);
+        inserted++;
+        return;
+      }
+
+      const merged = { ...existing };
+      let changed = false;
+
+      for (const f of FIELDS) {
+        if (incoming[f] && incoming[f] !== existing[f]) {
+          merged[f] = incoming[f];
+          changed = true;
+        }
+      }
+
+      const mergedContacts = mergeContactNumbers(existing.contact_details, incoming.contact_details);
+      if (mergedContacts !== (existing.contact_details || "")) {
+        merged.contact_details = mergedContacts;
+        changed = true;
+      }
+
+      if (changed) {
+        stmts.supplierUpdate.run({ ...merged, id: existing.id });
+        updated++;
+      } else {
+        unchanged++;
+      }
+    });
+  });
+
+  run(list);
+  return { inserted, updated, unchanged, skipped, total: list.length };
+}
+
 function insertSupplier(row) {
   const dbRow = supplierRowToDb(row);
   const info = stmts.supplierInsert.run(dbRow);
@@ -496,5 +592,5 @@ function supplierCount() {
 
 module.exports = { db, insertRow, insertMany, updateRow, updateRowFile,
                    deleteRow, getByMonth, getMonths, findByPoNumber, buildDashboard,
-                   getAllSuppliers, importSuppliers, insertSupplier, updateSupplier,
-                   deleteSupplier, supplierCount };
+                   getAllSuppliers, importSuppliers, upsertSuppliers, insertSupplier,
+                   updateSupplier, deleteSupplier, supplierCount };

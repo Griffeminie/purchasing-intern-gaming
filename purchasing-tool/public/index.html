@@ -529,6 +529,58 @@
     }, 350); // matches the CSS fade-out duration
   }
 
+  // Reverse of removeLoginCard(): bring the login card back and re-expand
+  // the grid to 4 columns, gliding the action cards out of the way — the
+  // same FLIP technique as removeLoginCard(), just run in the opposite
+  // direction, plus a fade/scale-in for the card itself.
+  function restoreLoginCard() {
+    if (panel.isConnected) return;
+    resetPanelState();
+    panel.classList.add('leaving'); // start hidden so there's no flash on insert
+
+    const cards = Array.from(grid.querySelectorAll('.action-card'));
+    const firstRects = cards.map(card => card.getBoundingClientRect());
+
+    grid.classList.remove('collapsed');
+    grid.insertBefore(panel, grid.firstChild);
+
+    cards.forEach((card, i) => {
+      const first = firstRects[i];
+      const last = card.getBoundingClientRect();
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      const sx = first.width / last.width;
+      const sy = first.height / last.height;
+      if (!dx && !dy && sx === 1 && sy === 1) return;
+
+      card.style.transformOrigin = 'top left';
+      card.style.transition = 'none';
+      card.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+      card.getBoundingClientRect(); // force reflow so the jump above applies first
+      card.style.transition = 'transform 0.4s ease';
+      card.style.transform = '';
+
+      card.addEventListener('transitionend', function cleanup(e) {
+        if (e.propertyName !== 'transform') return;
+        card.style.transition = '';
+        card.style.transformOrigin = '';
+        card.removeEventListener('transitionend', cleanup);
+      });
+    });
+
+    panel.getBoundingClientRect(); // force reflow before un-hiding
+    requestAnimationFrame(() => panel.classList.remove('leaving'));
+  }
+
+  // Clear the form and any leftover success/error state so the card looks
+  // fresh the next time it's shown.
+  function resetPanelState() {
+    panel.classList.remove('success', 'shake');
+    form.reset();
+    errorBox.textContent = '';
+    pendingHref = null;
+  }
+
   // Called right after a successful login submit: flash "Success!" in
   // green for a couple seconds, then tidy the card away.
   function showSuccessThenRemove() {
@@ -630,6 +682,13 @@
       attachLinkGuards();
       revealGrid();
     });
+
+  // Fires once the logout FAB has confirmed the server-side logout —
+  // bring the login card back with the reverse of the removal animation.
+  document.addEventListener('app:logged-out', () => {
+    isLoggedIn = false;
+    restoreLoginCard();
+  });
 })();
 
 (function () {
@@ -644,6 +703,13 @@
     requestAnimationFrame(() => fab.classList.add('show'));
   }
 
+  function hideFab() {
+    fab.classList.remove('show');
+    // Wait for the opacity fade-out to finish before actually hiding it,
+    // otherwise it snaps away mid-transition.
+    setTimeout(() => { fab.hidden = true; }, 250);
+  }
+
   fetch('/api/health')
     .then(r => r.json())
     .then(data => {
@@ -656,7 +722,10 @@
 
   fab.addEventListener('click', async () => {
     await fetch('/api/logout', { method: 'POST' });
-    window.location.href = '/';
+    hideFab();
+    // Let the login-panel script play the reverse animation instead of
+    // doing a hard reload straight back to the login screen.
+    document.dispatchEvent(new CustomEvent('app:logged-out'));
   });
 })();
 </script>
