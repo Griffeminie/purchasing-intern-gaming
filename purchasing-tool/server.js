@@ -41,7 +41,7 @@ bootLog("resolvePythonCmd() total");
 console.log(`[Python] Using command: ${PYTHON_CMD}`);
 
 const {
-  insertRow, updateRow, updateRowFile, deleteRow,
+  insertRow, updateRow, updateRowFile, deleteRow, deleteByPoNumber, overwriteByPoNumber,
   getByMonth, getMonths, findByPoNumber, buildDashboard, db,
   getAllSuppliers, importSuppliers, upsertSuppliers, insertSupplier, updateSupplier,
   deleteSupplier, supplierCount,
@@ -68,7 +68,7 @@ app.use(session({
 function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
 
-  const ALWAYS_ALLOWED = ['/', '/index.html', '/api/login'];
+  const ALWAYS_ALLOWED = ['/login.html', '/api/login', '/api/health'];
   const STATIC_ASSET   = /\.(css|js|png|jpe?g|svg|ico|gif|woff2?)$/i;
 
   if (ALWAYS_ALLOWED.includes(req.path) || STATIC_ASSET.test(req.path)) {
@@ -77,9 +77,9 @@ function requireAuth(req, res, next) {
   if (req.path.startsWith('/api/')) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  // Any other page (dashboard.html, monitoring.html, etc.) -> bounce home,
-  // remembering where they were trying to go
-  return res.redirect(`/?next=${encodeURIComponent(req.path)}`);
+  // Any other page (index.html, dashboard.html, monitoring.html, etc.) ->
+  // bounce to the dedicated login screen, remembering where they were headed
+  return res.redirect(`/login.html?next=${encodeURIComponent(req.path)}`);
 }
 app.use(requireAuth);
 
@@ -206,6 +206,27 @@ async function callGeminiRaw(payload) {
 // ── PO PDF upload storage ─────────────────────────────────────────────────────
 const poFilesDir = path.join(__dirname, "data", "po_files");
 fs.mkdirSync(poFilesDir, { recursive: true });
+
+// A `po_file` DB value is one of two things:
+//  - a bare filename → an app-managed copy living inside poFilesDir (the old
+//    "Attach" upload flow, and anything saved before folder-linking existed)
+//  - an absolute path → a direct link to the file in its ORIGINAL folder
+//    (the "Scan PO Folder" flow below no longer copies; it just remembers
+//    where the file already lives, so nothing gets duplicated on disk and
+//    re-scanning the same folder is just a cheap path update)
+function isManagedPoFile(poFile) {
+  return !!poFile && !path.isAbsolute(poFile);
+}
+function resolvePoFilePath(poFile) {
+  return isManagedPoFile(poFile) ? path.join(poFilesDir, poFile) : poFile;
+}
+// Only ever delete files WE copied into poFilesDir — never touch a file
+// that lives in the user's own original folder.
+function deleteIfManaged(poFile) {
+  if (!isManagedPoFile(poFile)) return;
+  const p = path.join(poFilesDir, poFile);
+  try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch(e) {}
+}
 
 const poStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, poFilesDir),
@@ -643,14 +664,26 @@ app.put("/api/row/:id", (req, res) => {
 app.delete("/api/row/:id", (req, res) => {
   try {
     const id  = parseInt(req.params.id);
-    // Also delete the linked PDF if it exists
+    // Also delete the linked PDF if it exists — but only if it's a copy we
+    // manage; never delete a file that's linked directly from the user's
+    // own folder.
     const row = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
-    if (row && row.po_file) {
-      const filePath = path.join(poFilesDir, row.po_file);
-      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch(e) {}
-    }
+    if (row) deleteIfManaged(row.po_file);
     deleteRow(id);
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/po/:poNumber — deletes EVERY row grouped under this PO number
+// in one call, instead of requiring each item row to be deleted individually
+// before the PO group itself disappears.
+app.delete("/api/po/:poNumber", (req, res) => {
+  try {
+    const poNumber = req.params.poNumber.trim();
+    if (!poNumber) return res.status(400).json({ error: "PO number is required" });
+    const deletedRows = deleteByPoNumber(poNumber);
+    deletedRows.forEach(r => deleteIfManaged(r.po_file));
+    res.json({ success: true, deleted: deletedRows.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -661,12 +694,10 @@ app.post("/api/row/:id/file", poUpload.single("po_file"), (req, res) => {
     const id = parseInt(req.params.id);
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-    // If this row already had a file, delete the old one
+    // If this row already had a file, remove the old one (only if it's a
+    // managed copy — leave a folder-linked original alone)
     const existing = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
-    if (existing && existing.po_file) {
-      const old = path.join(poFilesDir, existing.po_file);
-      try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch(e) {}
-    }
+    if (existing) deleteIfManaged(existing.po_file);
 
     updateRowFile(id, req.file.filename);
     console.log(`[PO File] Row ${id} → ${req.file.filename}`);
@@ -682,26 +713,29 @@ app.get("/api/row/:id/file", (req, res) => {
     const row = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
     if (!row || !row.po_file) return res.status(404).json({ error: "No file attached" });
 
-    const filePath = path.join(poFilesDir, row.po_file);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
+    const filePath = resolvePoFilePath(row.po_file);
+    if (!fs.existsSync(filePath)) {
+      const hint = isManagedPoFile(row.po_file) ? "" : " (it lives in its original folder — has it been moved or renamed?)";
+      return res.status(404).json({ error: "File not found on disk" + hint });
+    }
 
     // Send inline so the browser can display it in an iframe
+    const displayName = path.basename(row.po_file);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${row.po_file}"`);
+    res.setHeader("Content-Disposition", `inline; filename="${displayName}"`);
     fs.createReadStream(filePath).pipe(res);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── PO FILE: Remove a PDF from a row ─────────────────────────────────────────
 // DELETE /api/row/:id/file
+// This only ever unlinks the reference / deletes OUR managed copy — a file
+// linked from the user's own folder is never touched on disk.
 app.delete("/api/row/:id/file", (req, res) => {
   try {
     const id  = parseInt(req.params.id);
     const row = db.prepare("SELECT po_file FROM purchase_orders WHERE id = ?").get(id);
-    if (row && row.po_file) {
-      const filePath = path.join(poFilesDir, row.po_file);
-      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch(e) {}
-    }
+    if (row) deleteIfManaged(row.po_file);
     updateRowFile(id, "");
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -970,11 +1004,9 @@ app.post("/api/po-files/scan", async (req, res) => {
       continue;
     }
 
-    // If row already had a different file, delete the old one
-    if (row.po_file && row.po_file !== destName) {
-      const old = path.join(poFilesDir, row.po_file);
-      try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch(e) {}
-    }
+    // If row already had a different file, delete the old one (only if it
+    // was a copy we manage — never touch a file in the user's own folder)
+    if (row.po_file && row.po_file !== destName) deleteIfManaged(row.po_file);
 
     // Link to DB row
     db.prepare("UPDATE purchase_orders SET po_file = ? WHERE id = ?").run(destName, row.id);
@@ -1072,14 +1104,63 @@ app.post("/api/scanner/extract", scanUpload.array("pdfs", 20), async (req, res) 
 // POST /api/scanner/save — save confirmed rows into SQLite
 app.post("/api/scanner/save", (req, res) => {
   try {
-    const { rows, month } = req.body;
+    const { rows, month, overwritePoNumbers } = req.body;
     if (!rows || !rows.length) return res.status(400).json({ error: "No rows to save" });
     const targetMonth = (month || new Date().toLocaleString("en-US",{month:"short"}).toUpperCase());
+
+    // PO numbers the user confirmed as "Overwrite & Save" in the duplicate
+    // prompt. Each one gets wiped from the DB (once) right before its rows
+    // are (re)inserted, instead of being added alongside the old entry.
+    const overwriteSet = new Set((overwritePoNumbers || []).map(s => (s || "").trim()).filter(Boolean));
+    const alreadyOverwritten = new Set();
+    let overwrittenCount = 0;
     let saved = 0;
+
     for (const row of rows) {
+      const poNumber = (row["PO NUMBER"] || "").trim();
+      if (poNumber && overwriteSet.has(poNumber) && !alreadyOverwritten.has(poNumber)) {
+        alreadyOverwritten.add(poNumber);
+        const preserved = overwriteByPoNumber(poNumber);
+        overwrittenCount++;
+        // Carry over a manually-locked status and any attached PO file so
+        // re-scanning the same PO doesn't lose them.
+        if (preserved.status && !row["PURCHASE ORDER STATUS"]) row["PURCHASE ORDER STATUS"] = preserved.status;
+        if (preserved.file && !row["PO FILE"]) row["PO FILE"] = preserved.file;
+      }
       insertRow(row, targetMonth);
       saved++;
     }
+    res.json({ success: true, saved, overwritten: overwrittenCount });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/po/save — save a whole PO (its shared PO-level fields + all item
+// rows) from the Monitoring "Add Entry" / "Edit PO details" table editor.
+// If originalPoNumber is given, every existing row under that PO number is
+// wiped and replaced by the submitted items (same overwrite-with-preserved-
+// status/file semantics as the scanner's duplicate-PO overwrite).
+app.post("/api/po/save", (req, res) => {
+  try {
+    const { month, originalPoNumber, poFields, items } = req.body;
+    if (!items || !items.length) return res.status(400).json({ error: "At least one item row is required" });
+    const targetMonth = month || new Date().toLocaleString("en-US",{month:"short"}).toUpperCase();
+
+    let preserved = { status: "", file: "" };
+    if (originalPoNumber) {
+      preserved = overwriteByPoNumber(originalPoNumber);
+    }
+
+    let saved = 0;
+    items.forEach((item, idx) => {
+      const row = { ...poFields, ...item };
+      if (idx === 0) {
+        if (preserved.status && !row["PURCHASE ORDER STATUS"]) row["PURCHASE ORDER STATUS"] = preserved.status;
+        if (preserved.file && !row["PO FILE"]) row["PO FILE"] = preserved.file;
+      }
+      insertRow(row, targetMonth);
+      saved++;
+    });
+
     res.json({ success: true, saved });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

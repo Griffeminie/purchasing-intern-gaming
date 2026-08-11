@@ -253,6 +253,21 @@
   </div>
 </div>
 
+<!-- Duplicate PO confirmation — same look as the unsaved-changes modal, different copy -->
+<div class="unsaved-overlay" id="duplicate-po-overlay">
+  <div class="unsaved-modal">
+    <div class="unsaved-icon">
+      <i data-lucide="alert-triangle" style="width:20px;height:20px;"></i>
+    </div>
+    <h3 id="duplicate-po-title">PO already in Monitoring</h3>
+    <p id="duplicate-po-text">This PO is already saved. Saving now will overwrite the existing entry instead of adding a duplicate.</p>
+    <div class="unsaved-actions">
+      <button class="btn btn-secondary" onclick="cancelDuplicateSave()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDuplicateSave()">Overwrite &amp; Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="page-wrap">
 
   <!-- ── Step 1: Drop Zone ── -->
@@ -544,7 +559,7 @@ document.getElementById("extract-btn").addEventListener("click", async () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // REVIEW RENDER
 // ═══════════════════════════════════════════════════════════════════════════
-const STATUS_OPTIONS = ["","Served","For Delivery","Pending","Cancelled"];
+const STATUS_OPTIONS = ["OPEN PR (processing)","PROCESSED (await for delivery)","SERVED","CANCELLED PR/PO"];
 
 function renderReview() {
   const section = document.getElementById("review-section");
@@ -742,6 +757,8 @@ function updateSaveSummary() {
 // ═══════════════════════════════════════════════════════════════════════════
 // SAVE TO MONITORING
 // ═══════════════════════════════════════════════════════════════════════════
+let pendingSavePayload = null; // { rows, month, dupPoNumbers } — set while the duplicate-confirm modal is open
+
 document.getElementById("save-btn").addEventListener("click", async () => {
   const active = extractedPOs.filter(p => !p.excluded);
   if (!active.length) { toast("No POs to save", "error"); return; }
@@ -753,18 +770,77 @@ document.getElementById("save-btn").addEventListener("click", async () => {
 
   const btn = document.getElementById("save-btn");
   btn.disabled = true;
+  btn.textContent = "Checking…";
+
+  try {
+    // Check each distinct PO number against what's already in Monitoring
+    // before saving, so a re-scan of the same PO doesn't create a duplicate.
+    const poNumbers = [...new Set(allRows.map(r => (r["PO NUMBER"] || "").trim()).filter(Boolean))];
+    const dupPoNumbers = [];
+    for (const poNumber of poNumbers) {
+      try {
+        const r = await fetch(`/api/po/${encodeURIComponent(poNumber)}`);
+        const d = await r.json();
+        if (d.found) dupPoNumbers.push(poNumber);
+      } catch (e) { /* if the check fails, just proceed as a normal (non-duplicate) save */ }
+    }
+
+    if (dupPoNumbers.length) {
+      pendingSavePayload = { rows: allRows, month, dupPoNumbers };
+      const list = dupPoNumbers.join(", ");
+      const single = dupPoNumbers.length === 1;
+      document.getElementById("duplicate-po-title").textContent =
+        single ? "PO already in Monitoring" : `${dupPoNumbers.length} POs already in Monitoring`;
+      document.getElementById("duplicate-po-text").textContent =
+        single
+          ? `PO ${list} is already saved in Monitoring. Saving now will overwrite that existing entry with this scan's data instead of adding a duplicate.`
+          : `These POs are already saved in Monitoring: ${list}. Saving now will overwrite those existing entries with this scan's data instead of adding duplicates.`;
+      document.getElementById("duplicate-po-overlay").classList.add("visible");
+      lucide.createIcons();
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="save" style="width:14px;height:14px;"></i> Save to Monitoring';
+      lucide.createIcons();
+      return;
+    }
+
+    await performSave(allRows, month, []);
+  } catch (e) {
+    toast("Error: " + e.message, "error");
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="save" style="width:14px;height:14px;"></i> Save to Monitoring';
+    lucide.createIcons();
+  }
+});
+
+function cancelDuplicateSave() {
+  document.getElementById("duplicate-po-overlay").classList.remove("visible");
+  pendingSavePayload = null;
+}
+
+async function confirmDuplicateSave() {
+  document.getElementById("duplicate-po-overlay").classList.remove("visible");
+  if (!pendingSavePayload) return;
+  const { rows, month, dupPoNumbers } = pendingSavePayload;
+  pendingSavePayload = null;
+  await performSave(rows, month, dupPoNumbers);
+}
+
+async function performSave(allRows, month, overwritePoNumbers) {
+  const btn = document.getElementById("save-btn");
+  btn.disabled = true;
   btn.textContent = "Saving…";
 
   try {
     const res  = await fetch("/api/scanner/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rows: allRows, month }),
+      body: JSON.stringify({ rows: allRows, month, overwritePoNumbers }),
     });
     const data = await res.json();
 
     if (data.success) {
-      toast(`✓ ${data.saved} rows saved to ${month} monitoring`);
+      const overwriteNote = data.overwritten ? ` (${data.overwritten} PO${data.overwritten>1?"s":""} overwritten)` : "";
+      toast(`✓ ${data.saved} rows saved to ${month} monitoring${overwriteNote}`);
       // Clear saved POs from review
       extractedPOs = extractedPOs.filter(p => p.excluded);
       updateDirtyState();
@@ -779,7 +855,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
     btn.innerHTML = '<i data-lucide="save" style="width:14px;height:14px;"></i> Save to Monitoring';
     lucide.createIcons();
   }
-});
+}
 
 // ── Spin animation ─────────────────────────────────────────────────────────
 const style = document.createElement("style");

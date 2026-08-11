@@ -74,6 +74,19 @@
       letter-spacing: 0.06em; color: var(--text-2); border-bottom: 1px solid var(--border);
       white-space: nowrap; position: sticky; top: 0; z-index: 10;
     }
+    /* Pin the expand-toggle and row-number columns so they stay visible
+       while scrolling horizontally through a wide column set */
+    .col-pin-1, .col-pin-2 { position: sticky; z-index: 3; }
+    .col-pin-1 { left: 0; }
+    .col-pin-2 { left: 28px; border-right: 1px solid var(--border-2); }
+    thead .col-pin-1, thead .col-pin-2 { z-index: 11; }
+    tbody .col-pin-1, tbody .col-pin-2 { background: var(--bg-2); }
+    tbody tr:hover .col-pin-1, tbody tr:hover .col-pin-2 { background: var(--bg-3); }
+    .po-group-row.expanded .col-pin-1, .po-group-row.expanded .col-pin-2 { background: #17233a; }
+    .item-row .col-pin-1 { background: var(--bg); }
+    .item-row:hover .col-pin-1 { background: var(--bg-3); }
+    .item-subheader .col-pin-1 { background: var(--bg-3); }
+    .item-total-row .col-pin-1 { background: var(--bg-3); }
     tbody tr { border-bottom: 1px solid var(--border-2); transition: background 0.1s; }
     tbody tr:last-child { border-bottom: none; }
     tbody tr:hover { background: var(--bg-3); }
@@ -124,6 +137,8 @@
       border-radius: 99px; font-size: 10px; font-weight: 600;
       text-transform: uppercase; letter-spacing: 0.05em;
       font-family: var(--font-mono); white-space: nowrap;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+      vertical-align: middle;
     }
     .badge-green  { background:#1a3a1e; color:var(--green);    border:1px solid #2d5a32; }
     .badge-blue   { background:#0a1f3a; color:var(--accent-2); border:1px solid #1a3a5a; }
@@ -209,6 +224,8 @@
 
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
     .form-grid .span-2 { grid-column: span 2; }
+    .po-editor-row td { padding: 4px 6px; vertical-align: middle; }
+    .po-editor-row .po-ed-input { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 12px; }
     .form-section-label {
       font-size: 10px; font-family: var(--font-mono); text-transform: uppercase;
       letter-spacing: 0.1em; color: var(--accent-2); margin: 18px 0 10px;
@@ -342,9 +359,9 @@
   <select id="status-filter" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;padding:6px 10px;outline:none;cursor:pointer;">
     <option value="">All Statuses</option>
     <option value="Served">Served</option>
-    <option value="For Delivery">For Delivery</option>
-    <option value="Pending">Pending</option>
-    <option value="Cancelled">Cancelled</option>
+    <option value="Open PR">Open PR (processing)</option>
+    <option value="Processed">Processed (await for delivery)</option>
+    <option value="Cancelled">Cancelled PR/PO</option>
   </select>
   <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
     <button class="btn btn-secondary btn-sm" id="col-toggle-btn"><i data-lucide="columns" style="width:13px;height:13px;"></i> Columns</button>
@@ -362,6 +379,7 @@
 <div class="stats-strip">
   <div class="stat-pill"><span class="stat-pill-label">POs</span><span class="stat-pill-value" id="stat-entries">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Total Amount</span><span class="stat-pill-value" id="stat-total">—</span></div>
+  <div class="stat-pill"><span class="stat-pill-label">Net Total</span><span class="stat-pill-value" id="stat-net" style="color:var(--accent-2);">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Served</span><span class="stat-pill-value" id="stat-served">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Pending</span><span class="stat-pill-value" id="stat-pending">—</span></div>
   <div class="stat-pill"><span class="stat-pill-label">Cost Savings</span><span class="stat-pill-value" id="stat-savings">—</span></div>
@@ -437,11 +455,12 @@
         <div class="form-group"><label class="form-label">PO Status</label>
           <select class="form-select" data-field="PURCHASE ORDER STATUS">
             <option value="">— Select —</option>
-            <option value="Served">Served</option>
-            <option value="For Delivery">For Delivery</option>
-            <option value="Pending">Pending</option>
-            <option value="Cancelled">Cancelled</option>
+            <option value="OPEN PR (processing)">Open PR (processing)</option>
+            <option value="PROCESSED (await for delivery)">Processed (await for delivery)</option>
+            <option value="SERVED">Served</option>
+            <option value="CANCELLED PR/PO">Cancelled PR/PO</option>
           </select>
+          <span style="font-size:10px;color:var(--text-3);">Auto: Open PR on creation, Processed once a PO file is attached. Only set Served / Cancelled manually.</span>
         </div>
         <div class="form-group"><label class="form-label">Date Delivered</label><input class="form-input" type="date" data-field="DATE DELIVERED" /></div>
         <div class="form-group"><label class="form-label">Items/Services</label><input class="form-input" type="text" placeholder="Goods / Services" data-field="ITEMS/SERVICES" /></div>
@@ -454,12 +473,10 @@
         <div class="form-group span-2"><label class="form-label">Specifications</label><input class="form-input" type="text" placeholder="Technical specs" data-field="SPECIFICATIONS" /></div>
 
         <div class="form-section-label">Amounts</div>
-        <div class="form-group"><label class="form-label">QTY</label><input class="form-input" type="number" min="0" step="any" placeholder="0" data-field="QTY" /></div>
-        <div class="form-group"><label class="form-label">Unit Price</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="UNIT PRICE" /></div>
-        <div class="form-group"><label class="form-label">Amount</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="AMOUNT" /></div>
-        <div class="form-group"><label class="form-label">Total Amount</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="TOTAL AMOUNT" /></div>
-        <div class="form-group"><label class="form-label">Original Price</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="ORIGINAL PRICE" /></div>
-        <div class="form-group"><label class="form-label">Total Cost Savings</label><input class="form-input" type="number" min="0" step="0.01" placeholder="0.00" data-field="TOTAL COST SAVINGS" /></div>
+        <div class="form-group"><label class="form-label">QTY</label><input class="form-input" type="number" step="any" placeholder="0" data-field="QTY" /></div>
+        <div class="form-group"><label class="form-label">Unit Price</label><input class="form-input" type="number" step="0.01" placeholder="0.00 (negative = discount/charge-back)" data-field="UNIT PRICE" /></div>
+        <div class="form-group"><label class="form-label">Amount <span style="font-weight:400;text-transform:none;color:var(--text-3);">(auto)</span></label><input class="form-input" type="number" step="0.01" placeholder="0.00" data-field="AMOUNT" readonly style="background:var(--bg-3);color:var(--text-2);" /></div>
+        <div class="form-group"><label class="form-label">Total Amount <span style="font-weight:400;text-transform:none;color:var(--text-3);">(auto)</span></label><input class="form-input" type="number" step="0.01" placeholder="0.00" data-field="TOTAL AMOUNT" readonly style="background:var(--bg-3);color:var(--text-2);" /></div>
 
         <div class="form-section-label">Remarks</div>
         <div class="form-group span-2"><label class="form-label">Remarks</label><input class="form-input" type="text" placeholder="Any additional notes" data-field="REMARKS" /></div>
@@ -477,6 +494,85 @@
   </div>
 </div>
 
+<!-- PO Editor Modal — add/edit an entire PO with all its item rows at once -->
+<div class="modal-overlay" id="po-editor-modal">
+  <div class="modal" style="max-width:980px;">
+    <div class="modal-header">
+      <h2 id="po-editor-title">Add Entry</h2>
+      <button class="modal-close" id="po-editor-close-btn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" id="po-editor-fields">
+        <div class="form-section-label">PR Information</div>
+        <div class="form-group"><label class="form-label">PR Date</label><input class="form-input" type="date" data-field="PR DATE" /></div>
+        <div class="form-group"><label class="form-label">PR Date Received</label><input class="form-input" type="date" data-field="PR DATE RECEIVED" /></div>
+        <div class="form-group"><label class="form-label">PR No.</label><input class="form-input" type="text" placeholder="PR-2026-001" data-field="PR NO." /></div>
+        <div class="form-group"><label class="form-label">Requesting Dept.</label><input class="form-input" type="text" placeholder="e.g. Admin" data-field="REQUESTING DEPT." /></div>
+        <div class="form-group"><label class="form-label">PR Required Date</label><input class="form-input" type="date" data-field="PR REQUIRED DATE" /></div>
+        <div class="form-group"><label class="form-label">End User/s</label><input class="form-input" type="text" placeholder="Name of end user" data-field="END USER/S" /></div>
+
+        <div class="form-section-label">PO Information</div>
+        <div class="form-group"><label class="form-label">PO Date</label><input class="form-input" type="date" data-field="PO DATE" /></div>
+        <div class="form-group"><label class="form-label">PO Number</label><input class="form-input" type="text" placeholder="PO-2026-001" data-field="PO NUMBER" /></div>
+        <div class="form-group"><label class="form-label">Payment Terms</label><input class="form-input" type="text" placeholder="e.g. 30 days" data-field="PAYMENT TERMS" /></div>
+        <div class="form-group"><label class="form-label">PO Status</label>
+          <select class="form-select" data-field="PURCHASE ORDER STATUS">
+            <option value="">— Select —</option>
+            <option value="OPEN PR (processing)">Open PR (processing)</option>
+            <option value="PROCESSED (await for delivery)">Processed (await for delivery)</option>
+            <option value="SERVED">Served</option>
+            <option value="CANCELLED PR/PO">Cancelled PR/PO</option>
+          </select>
+          <span style="font-size:10px;color:var(--text-3);">Auto: Open PR on creation, Processed once a PO file is attached.</span>
+        </div>
+        <div class="form-group"><label class="form-label">Date Delivered</label><input class="form-input" type="date" data-field="DATE DELIVERED" /></div>
+        <div class="form-group"><label class="form-label">Items/Services</label><input class="form-input" type="text" placeholder="Goods / Services" data-field="ITEMS/SERVICES" /></div>
+        <div class="form-group span-2"><label class="form-label">Supplier's Name</label><input class="form-input" type="text" placeholder="Company name" data-field="SUPPLIER'S NAME" /></div>
+        <div class="form-group span-2"><label class="form-label">Remarks</label><input class="form-input" type="text" placeholder="Any additional notes" data-field="REMARKS" /></div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:22px 0 10px;">
+        <span style="font-size:10px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.1em;color:var(--accent-2);">Items</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="po-editor-add-row-btn"><i data-lucide="plus" style="width:12px;height:12px;"></i> Add Item Row</button>
+      </div>
+
+      <div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:var(--bg-3);">
+              <th style="text-align:left;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);">Item Code</th>
+              <th style="text-align:left;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);">Description</th>
+              <th style="text-align:left;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);">Specs</th>
+              <th style="text-align:left;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);width:70px;">Qty</th>
+              <th style="text-align:left;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);width:70px;">UoM</th>
+              <th style="text-align:left;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);width:100px;">Unit Price</th>
+              <th style="text-align:right;padding:7px 8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-2);width:100px;">Amount</th>
+              <th style="width:34px;"></th>
+            </tr>
+          </thead>
+          <tbody id="po-editor-items-body"></tbody>
+        </table>
+      </div>
+      <p style="font-size:11px;color:var(--text-3);margin-top:6px;">Amount auto-calculates as Qty × Unit Price. For a discount or charge-back line, use a negative Unit Price (e.g. item "Discount", Qty 1, Unit Price -1298).</p>
+
+      <div style="display:flex;gap:20px;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-2);font-family:var(--font-mono);font-size:12px;">
+        <div>PO Total <strong id="po-editor-total" style="color:var(--green);margin-left:6px;">₱0.00</strong></div>
+        <div>Savings <strong id="po-editor-savings" style="color:var(--yellow);margin-left:6px;">₱0.00</strong></div>
+        <div>Net Total <strong id="po-editor-net" style="color:var(--accent-2);margin-left:6px;">₱0.00</strong></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <button class="btn btn-danger" id="po-editor-delete-btn" style="display:none;">
+        <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entire PO
+      </button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" id="po-editor-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="po-editor-save-btn"><i data-lucide="save" style="width:13px;height:13px;"></i> Save PO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Confirm Delete Modal -->
 
 <!-- Confirm Delete Modal -->
@@ -485,8 +581,8 @@
     <div class="confirm-remove-icon" style="background:#3a1a1a;color:var(--red);margin:0 auto 10px;">
       <i data-lucide="trash-2" style="width:20px;height:20px;"></i>
     </div>
-    <h3 style="font-size:16px;font-weight:700;">Delete this entry?</h3>
-    <p style="font-size:13px;color:var(--text-2);margin-top:6px;">This cannot be undone. The PO file attached (if any) will also be deleted.</p>
+    <h3 style="font-size:16px;font-weight:700;" id="confirm-modal-title">Delete this entry?</h3>
+    <p style="font-size:13px;color:var(--text-2);margin-top:6px;" id="confirm-modal-text">This cannot be undone. The PO file attached (if any) will also be deleted.</p>
     <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
       <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
       <button class="btn btn-danger" id="confirm-delete">Delete</button>
@@ -518,31 +614,20 @@
 const MONTH_ORDER = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 
 const ALL_COLUMNS = [
-  { key: "PO FILE",                label: "PO File",      visible: true  },   // ← NEW
-  { key: "PR DATE",                label: "PR Date",      visible: true  },
-  { key: "PR DATE RECEIVED",       label: "PR Rcvd",      visible: false },
-  { key: "PR NO.",                 label: "PR No.",        visible: true  },
-  { key: "REQUESTING DEPT.",       label: "Dept",          visible: true  },
-  { key: "PO DATE",                label: "PO Date",      visible: true  },
-  { key: "PO NUMBER",              label: "PO No.",        visible: true  },
-  { key: "END USER/S",             label: "End User",     visible: false },
-  { key: "SUPPLIER'S NAME",        label: "Supplier",     visible: true  },
-  { key: "ITEM CODE",              label: "Item Code",    visible: false },
-  { key: "ITEM DESCRIPTION",       label: "Item Desc",    visible: true  },
-  { key: "SPECIFICATIONS",         label: "Specs",        visible: false },
-  { key: "QTY",                    label: "Qty",          visible: true  },
-  { key: "UoM",                    label: "UoM",          visible: false },
-  { key: "UNIT PRICE",             label: "Unit Price",   visible: true  },
-  { key: "AMOUNT",                 label: "Amount",       visible: false },
-  { key: "TOTAL AMOUNT",           label: "Total Amt",    visible: true  },
-  { key: "PAYMENT TERMS",          label: "Payment",      visible: false },
-  { key: "PR REQUIRED DATE",       label: "PR Req Date",  visible: false },
-  { key: "DATE DELIVERED",         label: "Delivered",    visible: true  },
-  { key: "REMARKS",                label: "Remarks",      visible: false },
-  { key: "PURCHASE ORDER STATUS",  label: "Status",       visible: true  },
-  { key: "ITEMS/SERVICES",         label: "Type",         visible: false },
-  { key: "ORIGINAL PRICE",         label: "Orig Price",   visible: false },
-  { key: "TOTAL COST SAVINGS",     label: "Savings",      visible: true  },
+  { key: "PO FILE",                label: "PO File",      visible: true,  width: 100 },
+  { key: "PR DATE",                label: "PR Date",      visible: true,  width: 90  },
+  { key: "PR DATE RECEIVED",       label: "PR Rcvd",      visible: false, width: 90  },
+  { key: "PR NO.",                 label: "PR No.",        visible: true,  width: 100 },
+  { key: "REQUESTING DEPT.",       label: "Dept",          visible: true,  width: 90  },
+  { key: "PO DATE",                label: "PO Date",      visible: true,  width: 90  },
+  { key: "PO NUMBER",              label: "PO No.",        visible: true,  width: 100 },
+  { key: "END USER/S",             label: "End User",     visible: false, width: 110 },
+  { key: "SUPPLIER'S NAME",        label: "Supplier",     visible: true,  width: 150 },
+  { key: "PAYMENT TERMS",          label: "Payment",      visible: false, width: 80  },
+  { key: "PR REQUIRED DATE",       label: "PR Req Date",  visible: false, width: 100 },
+  { key: "DATE DELIVERED",         label: "Delivered",    visible: true,  width: 90  },
+  { key: "REMARKS",                label: "Remarks",      visible: false, width: 140 },
+  { key: "PURCHASE ORDER STATUS",  label: "Status",       visible: true,  width: 130 },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -552,6 +637,7 @@ let currentMonth = localStorage.getItem("lastMonitoringMonth") || MONTH_ORDER[ne
 let allRows         = [];
 let filteredRows    = [];
 let editingId       = null;
+let editingGroupPoNumber = null; // set when the edit modal was opened from a PO group header — makes Delete remove the whole PO
 let deleteTargetId  = null;
 let expandedGroups  = new Set(); // tracks which PO groups are open
 let uploadTargetId  = null;
@@ -571,11 +657,11 @@ function statusBadge(s) {
   if (!s) return '<span class="badge badge-grey">—</span>';
   const u = s.toLowerCase();
   let cls = "badge-grey";
-  if (u.includes("served") || u.includes("complete")) cls = "badge-green";
-  else if (u.includes("deliver"))                      cls = "badge-blue";
-  else if (u.includes("cancel"))                       cls = "badge-red";
-  else if (u.includes("pending"))                      cls = "badge-yellow";
-  return `<span class="badge ${cls}">${s}</span>`;
+  if (u.includes("served"))                cls = "badge-green";
+  else if (u.includes("processed"))        cls = "badge-blue";
+  else if (u.includes("open pr"))          cls = "badge-yellow";
+  else if (u.includes("cancel"))           cls = "badge-red";
+  return `<span class="badge ${cls}" title="${escHtml(s)}">${s}</span>`;
 }
 function toast(msg, type = "success") {
   const el = document.createElement("div");
@@ -715,10 +801,10 @@ function renderTable() {
   const summaryCols = cols.filter(c => !ITEM_KEYS.has(c.key) && c.key !== "PO FILE");
 
   document.getElementById("table-head").innerHTML = `<tr>
-    <th style="width:28px;"></th>
-    <th style="width:32px;">#</th>
-    ${summaryCols.map(c => `<th>${c.label}</th>`).join("")}
-    <th>PO File</th>
+    <th class="col-pin-1" style="width:28px;"></th>
+    <th class="col-pin-2" style="width:32px;">#</th>
+    ${summaryCols.map(c => `<th style="width:${c.width || 110}px;">${c.label}</th>`).join("")}
+    <th style="width:100px;">PO File</th>
     <th style="width:80px;text-align:center;">Actions</th>
   </tr>`;
 
@@ -780,8 +866,12 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
     // ── PO file button (uses first row's id for upload/view) ──────────────
     const fileRowId  = group.items[0].id;
     const fileVal    = group.items[0]["PO FILE"] || s["PO FILE"] || "";
+    // fileVal may be a bare filename (app-managed copy) OR a full path
+    // (linked directly from a scanned folder) — only ever show the bare
+    // filename in the UI, the full path just goes in a hover tooltip.
+    const fileBaseName = fileVal.split(/[\\/]/).pop();
     const fileCell   = fileVal
-      ? `<button class="btn-file-view" onclick="viewPdf(${fileRowId},'${escHtml(fileVal)}')">
+      ? `<button class="btn-file-view" title="${escHtml(fileVal)}" onclick="viewPdf(${fileRowId},'${escHtml(fileBaseName)}')">
            <i data-lucide="file-text" style="width:11px;height:11px;"></i> View
          </button>
          <button class="btn-file-remove" title="Remove" onclick="removeFile(${fileRowId})">
@@ -791,14 +881,15 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
            <i data-lucide="paperclip" style="width:11px;height:11px;"></i> Attach
          </button>`;
 
+
     // ── Summary / PO group header row ─────────────────────────────────────
     html += `
     <tr class="po-group-row ${isExpanded ? "expanded" : ""}"
         data-group="${gKey}" onclick="toggleGroup('${gKey}')">
-      <td class="toggle-cell">
+      <td class="toggle-cell col-pin-1">
         <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
       </td>
-      <td style="color:var(--text-3);font-size:11px;font-family:var(--font-mono);">${groupNum}</td>
+      <td class="col-pin-2" style="color:var(--text-3);font-size:11px;font-family:var(--font-mono);">${groupNum}</td>
       ${(() => {
         // Pre-calculate savings for this group to show in header
         let hdrSavings = 0;
@@ -812,11 +903,12 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
         }
         return summaryCols.map(c => {
           const v = s[c.key];
-          if (c.key === "PURCHASE ORDER STATUS") return `<td>${statusBadge(v)}</td>`;
+          const w = c.width || 110;
+          if (c.key === "PURCHASE ORDER STATUS") return `<td style="width:${w}px;max-width:${w}px;">${statusBadge(v)}</td>`;
           if (c.key === "TOTAL AMOUNT") {
             // Show calculated net total + savings badge in this cell
             const net = hdrTotal - hdrSavings;
-            return `<td style="font-family:var(--font-mono);font-size:11px;font-weight:700;">
+            return `<td style="width:${w}px;font-family:var(--font-mono);font-size:11px;font-weight:700;">
               <span style="color:var(--green);">${fmt(net)}</span>
               ${hdrSavings > 0
                 ? `<span style="display:inline-block;background:#3a2e0a;color:var(--yellow);border:1px solid #5a480f;font-size:10px;padding:1px 6px;border-radius:99px;margin-left:6px;font-family:var(--font-mono);">-${fmt(hdrSavings)}</span>`
@@ -824,8 +916,8 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
             </td>`;
           }
           if (["ORIGINAL PRICE","TOTAL COST SAVINGS"].includes(c.key))
-            return `<td style="font-family:var(--font-mono);font-size:11px;font-weight:600;">${v ? fmt(v) : "—"}</td>`;
-          return `<td title="${escHtml(v||"")}" style="font-weight:500;">${v || "—"}</td>`;
+            return `<td style="width:${w}px;font-family:var(--font-mono);font-size:11px;font-weight:600;">${v ? fmt(v) : "—"}</td>`;
+          return `<td title="${escHtml(v||"")}" style="width:${w}px;font-weight:500;">${v || "—"}</td>`;
         }).join("");
       })()}
       <td class="po-file-cell" onclick="event.stopPropagation()">${fileCell}</td>
@@ -833,7 +925,7 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
         <button class="btn-icon" title="Add item to this PO" onclick="openAddItem('${gKey}', ${fileRowId})">
           <i data-lucide="plus" style="width:13px;height:13px;"></i>
         </button>
-        <button class="btn-icon" title="Edit PO details" onclick="openEdit(${s.id})">
+        <button class="btn-icon" title="Edit PO details" onclick="${group.isSolo ? `openEdit(${s.id})` : `openPOEditor('edit','${gKey}')`}">
           <i data-lucide="pencil" style="width:13px;height:13px;"></i>
         </button>
       </td>
@@ -844,7 +936,7 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
       // Sub-header
       html += `
       <tr class="item-subheader" data-group="${gKey}" style="display:${isExpanded?"table-row":"none"}">
-        <td colspan="2"></td>
+        <td colspan="2" class="col-pin-1"></td>
         ${ITEM_COLS.map(c => `<td style="font-size:10px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.06em;color:var(--text-3);padding:4px 12px;">${c.label}</td>`).join("")}
         <td colspan="${totalCols - ITEM_COLS.length - 2}"></td>
       </tr>`;
@@ -868,7 +960,7 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
         html += `
         <tr class="item-row" data-group="${gKey}" data-id="${item.id}"
             style="display:${isExpanded?"table-row":"none"}">
-          <td colspan="2"></td>
+          <td colspan="2" class="col-pin-1"></td>
           ${ITEM_COLS.map(c => {
             const v = item[c.key];
             const calc = qty * unitPrice;
@@ -905,7 +997,7 @@ const totalCols = summaryCols.length + 4; // toggle + # + summaryCols + pofile +
       html += `
       <tr class="item-total-row" data-group="${gKey}"
           style="display:${isExpanded?"table-row":"none"}">
-        <td colspan="2"></td>
+        <td colspan="2" class="col-pin-1" style="border-top:2px solid var(--border);"></td>
         ${ITEM_COLS.map((c, ci) => {
           if (c.key === "AMOUNT") return `
             <td style="font-family:var(--font-mono);font-size:11px;font-weight:700;border-top:2px solid var(--border);">
@@ -1013,6 +1105,7 @@ function renderStats() {
 
   document.getElementById("stat-entries").textContent = uniquePOs;
   document.getElementById("stat-total").textContent   = fmt(totalSpend);
+  document.getElementById("stat-net").textContent     = fmt(totalSpend - totalSavings);
   document.getElementById("stat-served").textContent  = servedPOs.size;
   document.getElementById("stat-pending").textContent = pendingPOs.size;
   document.getElementById("stat-savings").textContent = fmt(totalSavings);
@@ -1045,7 +1138,9 @@ function toggleGroup(gKey) {
 function openAddItem(poNumber, referenceRowId) {
   const ref = allRows.find(r => r.id === referenceRowId);
   editingId = null;
+  editingGroupPoNumber = null;
   document.getElementById("modal-title").textContent = `Add Item — PO ${poNumber}`;
+  document.getElementById("modal-delete-btn").style.display = "none";
   // Clear form first
   document.querySelectorAll("#form-grid [data-field]").forEach(el => el.value = "");
   // Pre-fill PO-level fields from the reference row
@@ -1058,6 +1153,7 @@ function openAddItem(poNumber, referenceRowId) {
     });
   }
   document.getElementById("entry-modal").classList.add("open");
+  autoCalc();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1192,39 +1288,252 @@ document.getElementById("col-hide-all").addEventListener("click", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 function openAdd() {
   editingId = null;
+  editingGroupPoNumber = null;
   document.getElementById("modal-title").textContent = `Add Entry — ${currentMonth}`;
   document.querySelectorAll("#form-grid [data-field]").forEach(el => el.value = "");
   document.getElementById("modal-delete-btn").style.display = "none"; 
   document.getElementById("entry-modal").classList.add("open");
+  autoCalc();
 }
 function openEdit(id) {
   const row = allRows.find(r => r.id === id);
   if (!row) return;
   editingId = id;
+  editingGroupPoNumber = null; // editing a single item row — delete only removes this row
   document.getElementById("modal-title").textContent = `Edit Entry — ${currentMonth}`;
   document.querySelectorAll("#form-grid [data-field]").forEach(el => {
     el.value = row[el.dataset.field] ?? "";
   });
-  document.getElementById("modal-delete-btn").style.display = "inline-flex";
+  autoCalc(); // recompute Amount/Total — setting .value above doesn't fire "input"
+  const delBtn = document.getElementById("modal-delete-btn");
+  delBtn.style.display = "inline-flex";
+  delBtn.innerHTML = '<i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entry';
   document.getElementById("entry-modal").classList.add("open");
+  lucide.createIcons();
 }
+
+// Opened from the PO group header's pencil ("Edit PO details"). Editing still
+// only touches that one row's fields, but Delete here removes the WHOLE PO —
+// every item row grouped under this PO number — instead of just this row,
+// so you don't have to delete each item individually first.
+function openEditPO(id, poNumber, itemCount) {
+  const row = allRows.find(r => r.id === id);
+  if (!row) return;
+  editingId = id;
+  editingGroupPoNumber = poNumber || null; // empty = solo row with no PO number, behaves like a normal single-row edit
+  document.getElementById("modal-title").textContent =
+    poNumber ? `Edit PO ${poNumber} — ${currentMonth}` : `Edit Entry — ${currentMonth}`;
+  document.querySelectorAll("#form-grid [data-field]").forEach(el => {
+    el.value = row[el.dataset.field] ?? "";
+  });
+  autoCalc(); // recompute Amount/Total — setting .value above doesn't fire "input"
+  const delBtn = document.getElementById("modal-delete-btn");
+  delBtn.style.display = "inline-flex";
+  delBtn.innerHTML = editingGroupPoNumber
+    ? `<i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entire PO (${itemCount} item${itemCount>1?"s":""})`
+    : '<i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entry';
+  document.getElementById("entry-modal").classList.add("open");
+  lucide.createIcons();
+}
+
 function closeModal() {
   document.getElementById("entry-modal").classList.remove("open");
   document.getElementById("modal-delete-btn").style.display = "none";
   editingId = null;
+  editingGroupPoNumber = null;
 }
 
-// Auto-calc Amount
+// Auto-calc Amount / Total Amount — always mirrors QTY × UNIT PRICE exactly,
+// which is also how the monitoring table itself computes these (see
+// renderTable). A negative Unit Price is how a discount/charge-back row is
+// represented, so this intentionally does NOT clamp to zero/positive.
 document.querySelector('[data-field="QTY"]').addEventListener("input", autoCalc);
 document.querySelector('[data-field="UNIT PRICE"]').addEventListener("input", autoCalc);
 function autoCalc() {
   const qty   = parseFloat(document.querySelector('[data-field="QTY"]').value) || 0;
   const price = parseFloat(document.querySelector('[data-field="UNIT PRICE"]').value) || 0;
-  if (qty && price) {
-    document.querySelector('[data-field="AMOUNT"]').value       = (qty * price).toFixed(2);
-    document.querySelector('[data-field="TOTAL AMOUNT"]').value = (qty * price).toFixed(2);
-  }
+  const amt   = qty * price;
+  document.querySelector('[data-field="AMOUNT"]').value       = amt.toFixed(2);
+  document.querySelector('[data-field="TOTAL AMOUNT"]').value = amt.toFixed(2);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PO EDITOR — add/edit a whole PO (all its item rows) in one table, instead
+// of one item at a time. Opened from the "Add Entry" button and from a PO
+// group header's pencil ("Edit PO details").
+// ═══════════════════════════════════════════════════════════════════════════
+let poEditorMode             = null; // 'add' | 'edit'
+let poEditorOriginalPoNumber = null; // PO number as it existed when the editor opened (edit mode only)
+let poEditorTargetMonth      = null;
+let poEditorRowCounter       = 0;
+
+const PO_EDITOR_PO_FIELDS = [
+  "PR DATE","PR DATE RECEIVED","PR NO.","REQUESTING DEPT.","PR REQUIRED DATE","END USER/S",
+  "PO DATE","PO NUMBER","PAYMENT TERMS","PURCHASE ORDER STATUS","DATE DELIVERED","ITEMS/SERVICES",
+  "SUPPLIER'S NAME","REMARKS",
+];
+const PO_EDITOR_ITEM_FIELDS = ["ITEM CODE","ITEM DESCRIPTION","SPECIFICATIONS","QTY","UoM","UNIT PRICE"];
+
+function poEditorRowHTML(item) {
+  const v = f => escHtml(item[f] || "");
+  return `
+    <td><input class="form-input po-ed-input" data-f="ITEM CODE" placeholder="SKU" value="${v("ITEM CODE")}"></td>
+    <td><input class="form-input po-ed-input" data-f="ITEM DESCRIPTION" placeholder="Description" value="${v("ITEM DESCRIPTION")}"></td>
+    <td><input class="form-input po-ed-input" data-f="SPECIFICATIONS" placeholder="Specs" value="${v("SPECIFICATIONS")}"></td>
+    <td><input class="form-input po-ed-input po-ed-qty" data-f="QTY" type="number" step="any" placeholder="0" value="${v("QTY")}"></td>
+    <td><input class="form-input po-ed-input" data-f="UoM" placeholder="pcs" value="${v("UoM")}"></td>
+    <td><input class="form-input po-ed-input po-ed-price" data-f="UNIT PRICE" type="number" step="0.01" placeholder="0.00" value="${v("UNIT PRICE")}"></td>
+    <td class="po-ed-amount" style="text-align:right;padding:7px 8px;font-family:var(--font-mono);font-weight:600;white-space:nowrap;">₱0.00</td>
+    <td style="text-align:center;">
+      <button type="button" class="btn-icon danger po-ed-remove" title="Remove row">
+        <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+      </button>
+    </td>`;
+}
+
+function poEditorAttachRowHandlers(tr) {
+  tr.querySelectorAll(".po-ed-qty, .po-ed-price").forEach(inp => inp.addEventListener("input", poEditorRecompute));
+  tr.querySelector(".po-ed-remove").addEventListener("click", () => {
+    // Always keep at least one row so there's somewhere to type into
+    const body = document.getElementById("po-editor-items-body");
+    if (body.children.length <= 1) { toast("A PO needs at least one item row", "error"); return; }
+    tr.remove();
+    poEditorRecompute();
+  });
+}
+
+function poEditorAddRow(item = {}) {
+  poEditorRowCounter++;
+  const tr = document.createElement("tr");
+  tr.className = "po-editor-row";
+  tr.dataset.rowId = poEditorRowCounter;
+  tr.innerHTML = poEditorRowHTML(item);
+  document.getElementById("po-editor-items-body").appendChild(tr);
+  poEditorAttachRowHandlers(tr);
+  lucide.createIcons();
+}
+
+function poEditorRecompute() {
+  const rows = document.querySelectorAll("#po-editor-items-body .po-editor-row");
+  let positive = 0, savings = 0;
+  rows.forEach(tr => {
+    const qty   = parseFloat(tr.querySelector(".po-ed-qty").value)   || 0;
+    const price = parseFloat(tr.querySelector(".po-ed-price").value) || 0;
+    const amt   = qty * price;
+    const cell  = tr.querySelector(".po-ed-amount");
+    cell.textContent = fmt(amt);
+    cell.style.color = amt < 0 ? "var(--red)" : "var(--text)";
+    if (amt < 0) savings += Math.abs(amt); else positive += amt;
+  });
+  document.getElementById("po-editor-total").textContent   = fmt(positive);
+  document.getElementById("po-editor-savings").textContent = fmt(savings);
+  document.getElementById("po-editor-net").textContent     = fmt(positive - savings);
+}
+
+function openPOEditor(mode, poNumber) {
+  poEditorMode = mode;
+  poEditorOriginalPoNumber = mode === "edit" ? poNumber : null;
+  poEditorRowCounter = 0;
+
+  document.querySelectorAll("#po-editor-fields [data-field]").forEach(el => el.value = "");
+  document.getElementById("po-editor-items-body").innerHTML = "";
+
+  let items = [{}];
+
+  if (mode === "edit") {
+    const rows = allRows.filter(r => (r["PO NUMBER"] || "").trim() === poNumber);
+    if (!rows.length) { toast("Couldn't find that PO", "error"); return; }
+
+    PO_EDITOR_PO_FIELDS.forEach(f => {
+      const el = document.querySelector(`#po-editor-fields [data-field="${f}"]`);
+      if (el) el.value = rows[0][f] || "";
+    });
+    items = rows.map(r => {
+      const item = {};
+      PO_EDITOR_ITEM_FIELDS.forEach(f => item[f] = r[f] || "");
+      return item;
+    });
+    poEditorTargetMonth = rows[0].__srcMonth || currentMonth;
+
+    document.getElementById("po-editor-title").textContent = `Edit PO ${poNumber} — ${poEditorTargetMonth}`;
+    const delBtn = document.getElementById("po-editor-delete-btn");
+    delBtn.style.display = "inline-flex";
+    delBtn.innerHTML = `<i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entire PO (${rows.length} item${rows.length>1?"s":""})`;
+  } else {
+    poEditorTargetMonth = currentMonth;
+    document.getElementById("po-editor-title").textContent = `Add Entry — ${currentMonth}`;
+    document.getElementById("po-editor-delete-btn").style.display = "none";
+  }
+
+  items.forEach(item => poEditorAddRow(item));
+  poEditorRecompute();
+  document.getElementById("po-editor-modal").classList.add("open");
+  lucide.createIcons();
+}
+
+function closePOEditor() {
+  document.getElementById("po-editor-modal").classList.remove("open");
+  poEditorMode = null;
+  poEditorOriginalPoNumber = null;
+}
+
+document.getElementById("po-editor-add-row-btn").addEventListener("click", () => { poEditorAddRow(); poEditorRecompute(); });
+document.getElementById("po-editor-close-btn").addEventListener("click", closePOEditor);
+document.getElementById("po-editor-cancel-btn").addEventListener("click", closePOEditor);
+document.getElementById("po-editor-modal").addEventListener("click", e => {
+  if (e.target === document.getElementById("po-editor-modal")) closePOEditor();
+});
+document.getElementById("po-editor-delete-btn").addEventListener("click", () => {
+  if (poEditorOriginalPoNumber) confirmDeletePO(poEditorOriginalPoNumber);
+});
+
+document.getElementById("po-editor-save-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("po-editor-save-btn");
+  const poFields = {};
+  document.querySelectorAll("#po-editor-fields [data-field]").forEach(el => { poFields[el.dataset.field] = el.value; });
+
+  if (!poFields["PO NUMBER"] && !poFields["PR NO."]) {
+    toast("Enter at least a PO Number or PR No.", "error"); return;
+  }
+
+  const items = [];
+  document.querySelectorAll("#po-editor-items-body .po-editor-row").forEach(tr => {
+    const item = {};
+    tr.querySelectorAll("[data-f]").forEach(inp => { item[inp.dataset.f] = inp.value; });
+    const qty   = parseFloat(item["QTY"])        || 0;
+    const price = parseFloat(item["UNIT PRICE"]) || 0;
+    const amt   = qty * price;
+    item["AMOUNT"]       = amt ? amt.toFixed(2) : "";
+    item["TOTAL AMOUNT"] = amt ? amt.toFixed(2) : "";
+    items.push(item);
+  });
+
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const res = await fetch("/api/po/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        month: poEditorTargetMonth,
+        originalPoNumber: poEditorOriginalPoNumber,
+        poFields, items,
+      }),
+    });
+    const result = await res.json();
+    if (result.success) {
+      toast(`✓ PO saved (${result.saved} item${result.saved>1?"s":""})`);
+      closePOEditor();
+      await loadMonth();
+    } else {
+      toast(result.error || "Save failed", "error");
+    }
+  } catch(e) { toast("Network error", "error"); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="save" style="width:13px;height:13px;"></i> Save PO';
+    lucide.createIcons();
+  }
+});
 
 document.getElementById("modal-save-btn").addEventListener("click", async () => {
   const btn  = document.getElementById("modal-save-btn");
@@ -1255,35 +1564,54 @@ document.getElementById("modal-save-btn").addEventListener("click", async () => 
   }
 });
 
-document.getElementById("add-btn").addEventListener("click", openAdd);
+document.getElementById("add-btn").addEventListener("click", () => openPOEditor("add"));
 document.getElementById("modal-close-btn").addEventListener("click", closeModal);
 document.getElementById("modal-cancel-btn").addEventListener("click", closeModal);
 document.getElementById("entry-modal").addEventListener("click", e => {
   if (e.target === document.getElementById("entry-modal")) closeModal();
 });
 document.getElementById("modal-delete-btn").addEventListener("click", () => {
-  if (editingId) confirmDelete(editingId);
+  if (!editingId) return;
+  if (editingGroupPoNumber) confirmDeletePO(editingGroupPoNumber);
+  else confirmDelete(editingId);
 });
 // ═══════════════════════════════════════════════════════════════════════════
 // DELETE
 // ═══════════════════════════════════════════════════════════════════════════
+let deleteTargetPoNumber = null;
+
 function confirmDelete(id) {
   deleteTargetId = id;
+  deleteTargetPoNumber = null;
+  document.getElementById("confirm-modal-title").textContent = "Delete this entry?";
+  document.getElementById("confirm-modal-text").textContent  = "This cannot be undone. The PO file attached (if any) will also be deleted.";
+  document.getElementById("confirm-modal").classList.add("open");
+}
+function confirmDeletePO(poNumber) {
+  deleteTargetId = null;
+  deleteTargetPoNumber = poNumber;
+  document.getElementById("confirm-modal-title").textContent = `Delete entire PO ${poNumber}?`;
+  document.getElementById("confirm-modal-text").textContent  = "This removes every item under this PO in one go — not just one row. This cannot be undone. Any attached PO file will also be deleted.";
   document.getElementById("confirm-modal").classList.add("open");
 }
 document.getElementById("confirm-cancel").addEventListener("click", () => {
   document.getElementById("confirm-modal").classList.remove("open");
   deleteTargetId = null;
+  deleteTargetPoNumber = null;
 });
 document.getElementById("confirm-delete").addEventListener("click", async () => {
-  if (!deleteTargetId) return;
+  if (!deleteTargetId && !deleteTargetPoNumber) return;
   try {
-    const res = await fetch(`/api/row/${deleteTargetId}`, { method: "DELETE" });
+    const url = deleteTargetPoNumber
+      ? `/api/po/${encodeURIComponent(deleteTargetPoNumber)}`
+      : `/api/row/${deleteTargetId}`;
+    const res = await fetch(url, { method: "DELETE" });
     const d   = await res.json();
     if (d.success) {
-      toast("Entry deleted");
+      toast(deleteTargetPoNumber ? `PO deleted (${d.deleted} item${d.deleted===1?"":"s"})` : "Entry deleted");
       document.getElementById("confirm-modal").classList.remove("open");
       deleteTargetId = null;
+      deleteTargetPoNumber = null;
       closeModal();
       await loadMonth();
     } else { toast(d.error || "Delete failed", "error"); }
@@ -1371,7 +1699,7 @@ document.getElementById("status-filter").addEventListener("change", applyFilter)
           placeholder="e.g. C:\Users\ITSU\Desktop\PO Files"
           style="font-family:var(--font-mono);font-size:12px;" />
         <span style="font-size:11px;color:var(--text-3);margin-top:4px;display:block;">
-          Paste the full path to your PO folder. Original files are <strong>not moved or deleted</strong> — they are copied into the app's storage.
+          Paste the full path to your PO folder. Files are <strong>linked directly from that folder</strong> — nothing is copied, so there's only ever one copy on disk. If a file gets moved, renamed, or deleted from that folder later, the link will break.
         </span>
       </div>
 

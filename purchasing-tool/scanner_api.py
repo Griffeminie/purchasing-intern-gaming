@@ -49,6 +49,80 @@ def extract_pdf_text(pdf_path):
     doc.close()
     return "\n".join(parts), method
 
+# ── Fallback: rebuild reading order from word bounding boxes ──────────────────
+# Some PDFs (typically report-engine templates like the one used here) store
+# each TABLE COLUMN as its own text block — every "ITEM NO" value stacked
+# together, then every "QTY", then every "DESCRIPTION", etc. PyMuPDF's normal
+# `sort=True` extraction orders text block-by-block, so it dumps each column
+# as a run of consecutive lines instead of interleaving them row by row. The
+# regex-based item parser expects one row per line, so on documents like this
+# it silently matches nothing for the numbered items (while a simple two-value
+# "label amount amount" charge line still happens to survive intact) — meaning
+# only the charges show up and every numbered item goes missing.
+#
+# This rebuilds text by clustering words into visual rows using their actual
+# Y position on the page, then sorting each row's words left-to-right by X —
+# i.e. reconstructing the row PyMuPDF's block order threw away.
+def _extract_words_as_lines(page, y_tol=3):
+    words = page.get_text("words")  # (x0, y0, x1, y1, text, block_no, line_no, word_no)
+    if not words:
+        return ""
+    words = sorted(words, key=lambda w: (w[1], w[0]))
+    lines, bucket, bucket_top = [], [], None
+    for w in words:
+        y0 = w[1]
+        if bucket and (y0 - bucket_top) > y_tol:
+            bucket.sort(key=lambda x: x[0])
+            lines.append(" ".join(x[4] for x in bucket))
+            bucket, bucket_top = [], None
+        bucket.append(w)
+        bucket_top = y0 if bucket_top is None else min(bucket_top, y0)
+    if bucket:
+        bucket.sort(key=lambda x: x[0])
+        lines.append(" ".join(x[4] for x in bucket))
+    return "\n".join(lines)
+
+def _amount_sum(items):
+    total = 0.0
+    for it in items:
+        try:
+            total += float((it.get("amount") or "0").replace(",", ""))
+        except ValueError:
+            pass
+    return total
+
+# Heuristic: does this extraction look like it missed the numbered item rows?
+def _looks_incomplete(text, header, items):
+    regular = [it for it in items if not it.get("is_charge")]
+    # Signal 1 — numbered item markers ("001", "002", …) appear in the raw
+    # text, meaning the table exists, but none of them were parsed into rows.
+    has_item_markers = bool(re.search(r"(?m)^0\d{2}\s*$", text))
+    if has_item_markers and not regular:
+        return True
+    # Signal 2 — extracted line total is far off from the PO's printed total.
+    stated = header.get("TOTAL_AMOUNT")
+    if stated:
+        try:
+            stated_val = float(stated.replace(",", ""))
+            if stated_val > 0 and abs(_amount_sum(items) - stated_val) / stated_val > 0.05:
+                return True
+        except ValueError:
+            pass
+    return False
+
+# Did the reflowed re-parse actually do better than the original?
+def _is_better(retry_items, orig_items, header):
+    stated = header.get("TOTAL_AMOUNT")
+    if stated:
+        try:
+            stated_val = float(stated.replace(",", ""))
+            return abs(_amount_sum(retry_items) - stated_val) < abs(_amount_sum(orig_items) - stated_val)
+        except ValueError:
+            pass
+    retry_count = len([it for it in retry_items if not it.get("is_charge")])
+    orig_count  = len([it for it in orig_items  if not it.get("is_charge")])
+    return retry_count > orig_count
+
 # ── Header parsing ────────────────────────────────────────────────────────────
 
 def _clean(s):
@@ -266,8 +340,8 @@ def build_rows(header, items):
             "AMOUNT":                "",
             "TOTAL AMOUNT":          "",
             "PAYMENT TERMS":         header.get("TERMS", "")      if i == 0 else "",
-            "PR REQUIRED DATE":      "",
-            "DATE DELIVERED":        header.get("DELIVER_BY", "") if i == 0 else "",
+            "PR REQUIRED DATE":      header.get("DELIVER_BY", "") if i == 0 else "",
+            "DATE DELIVERED":        "",
             "REMARKS":               "",
             "PURCHASE ORDER STATUS": "",
             "ITEMS/SERVICES":        "",
@@ -291,6 +365,29 @@ def process_pdf(pdf_path_str):
         print("=== RAW TEXT END ===", file=sys.stderr)
     header      = extract_header(text)
     items       = parse_items(text)
+
+    # Some report-engine PDFs store each table column as its own text block,
+    # which scrambles the normal block-ordered extraction into column-major
+    # order and drops the numbered item rows entirely (see _extract_words_as_lines
+    # above). If that looks like what happened here, rebuild the text from word
+    # positions instead and re-parse — only swapping in the retry if it's better.
+    if method == "native" and _looks_incomplete(text, header, items):
+        try:
+            doc = fitz.open(pdf_path)
+            reflow_text = "\n".join(_extract_words_as_lines(p) for p in doc)
+            doc.close()
+            reflow_items = parse_items(reflow_text)
+            if _is_better(reflow_items, items, header):
+                if DEBUG:
+                    import sys
+                    print("=== REFLOW TEXT (used) ===", file=sys.stderr)
+                    print(reflow_text, file=sys.stderr)
+                text, items, method = reflow_text, reflow_items, "native+reflow"
+        except Exception as e:
+            if DEBUG:
+                import sys
+                print(f"=== REFLOW FAILED: {e} ===", file=sys.stderr)
+
     rows        = build_rows(header, items)
 
     # Separate regular items vs charges for reporting

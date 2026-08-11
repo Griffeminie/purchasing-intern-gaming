@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Purchasing Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    .login-body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .login-hero {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 24px;
+    }
+
+    .hero-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-2);
+      background: #0a1f3a;
+      border: 1px solid #1a3a5a;
+      padding: 4px 12px;
+      border-radius: 99px;
+      margin-bottom: 14px;
+    }
+    body.light .hero-badge { background: #ddf4ff; border-color: #aed9fb; }
+
+    .login-card {
+      width: 100%;
+      max-width: 360px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 26px;
+      box-shadow: var(--shadow-lg);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+    .login-card.shake { animation: shakeCard 0.35s; }
+
+    @keyframes shakeCard {
+      0%,100% { transform: translateX(0); }
+      20%,60% { transform: translateX(-8px); }
+      40%,80% { transform: translateX(8px); }
+    }
+
+    .login-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    .login-card h1 { margin: 0 0 4px; font-size: 1.3rem; color: var(--text); letter-spacing: -0.02em; }
+    .login-sub { margin: 0 0 22px; color: var(--text-2); font-size: 0.85rem; line-height: 1.4; }
+
+    .login-card form { display: flex; flex-direction: column; gap: 12px; }
+
+    .login-field label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-2);
+      margin-bottom: 6px;
+    }
+    .login-card input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+    }
+    .login-card input:focus { outline: none; border-color: #6366f1; }
+
+    .login-card button[type="submit"] {
+      margin-top: 6px;
+      padding: 11px;
+      border: none;
+      border-radius: 8px;
+      background: #6366f1;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .login-card button[type="submit"]:hover { background: #4f46e5; }
+    .login-card button[type="submit"]:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .login-error {
+      color: #dc2626;
+      font-size: 0.78rem;
+      min-height: 1em;
+    }
+
+    /* Success state, shown briefly before redirecting */
+    .login-status {
+      display: none;
+      align-items: center;
+      gap: 12px;
+    }
+    .login-card.success .login-status { display: flex; }
+    .login-card.success .login-form-wrap { display: none; }
+    .login-card.success { border-color: var(--green); }
+    .login-status-icon {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--green); color: #fff;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .login-status-text { font-size: 0.85rem; color: var(--green); }
+    .login-status-text strong { color: var(--green); display: block; font-size: 1rem; }
+
+    .login-card.leaving { opacity: 0; transform: scale(0.97); }
+
+    .back-home {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 18px;
+      font-size: 0.8rem;
+      color: var(--text-3);
+      text-decoration: none;
+    }
+    .back-home:hover { color: var(--text-2); }
+  </style>
+</head>
+<body class="login-body">
+
+  <nav class="topnav">
+    <a href="login.html" class="brand">
+      <div class="brand-icon">
+        <i data-lucide="clipboard-list" style="width:16px;height:16px;color:#fff;"></i>
+      </div>
+      <span class="brand-text">PURCHASE<span>/TOOL</span></span>
+    </a>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode">
+      <i data-lucide="moon" style="width:16px;height:16px;" id="theme-icon"></i>
+    </button>
+  </nav>
+  <script src="theme.js"></script>
+
+  <main class="login-hero">
+    <div class="hero-badge">Purchasing Department · IT Intern Project</div>
+
+    <div class="login-card" id="loginCard">
+      <div class="login-form-wrap">
+        <div class="login-icon"><i data-lucide="lock" style="width:20px;height:20px;"></i></div>
+        <h1>Sign in</h1>
+        <p class="login-sub">Enter your credentials to access the purchasing tools.</p>
+        <form id="loginForm">
+          <div class="login-field">
+            <label for="loginUser">Username</label>
+            <input type="text" id="loginUser" placeholder="Username" autocomplete="username" required>
+          </div>
+          <div class="login-field">
+            <label for="loginPass">Password</label>
+            <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" required>
+          </div>
+          <div class="login-error" id="loginError"></div>
+          <button type="submit" id="loginSubmit">
+            <i data-lucide="log-in" style="width:16px;height:16px;"></i>
+            Log in
+          </button>
+        </form>
+      </div>
+      <div class="login-status" id="loginStatus">
+        <div class="login-status-icon"><i data-lucide="check" style="width:18px;height:18px;"></i></div>
+        <div class="login-status-text">
+          <strong>Success!</strong>
+          You're signed in.
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script>lucide.createIcons();</script>
+<script>
+(function () {
+  const card     = document.getElementById('loginCard');
+  const form     = document.getElementById('loginForm');
+  const errorBox = document.getElementById('loginError');
+  const submitBtn = document.getElementById('loginSubmit');
+
+  const SUCCESS_LINGER_MS = 900;
+
+  // Where to send the user once they're signed in — either wherever they
+  // were headed before being bounced here, or the home screen by default.
+  const params = new URLSearchParams(window.location.search);
+  const next = params.get('next');
+  const destination = next && next.startsWith('/') ? next : 'index.html';
+
+  function shakeError(msg) {
+    errorBox.textContent = msg;
+    card.classList.remove('shake');
+    void card.offsetWidth;
+    card.classList.add('shake');
+  }
+
+  // If a session already exists, skip straight past the login screen.
+  fetch('/api/health')
+    .then(r => r.json())
+    .then(data => {
+      if (data.loggedIn) window.location.href = destination;
+    })
+    .catch(() => {});
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    const username = document.getElementById('loginUser').value.trim();
+    const password = document.getElementById('loginPass').value;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        card.classList.remove('shake');
+        card.classList.add('success');
+        setTimeout(() => { window.location.href = destination; }, SUCCESS_LINGER_MS);
+      } else {
+        submitBtn.disabled = false;
+        shakeError(data.error || 'Invalid username or password');
+      }
+    } catch (err) {
+      submitBtn.disabled = false;
+      shakeError('Could not reach server. Try again.');
+    }
+  });
+})();
+</script>
+</body>
+</html>
