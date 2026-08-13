@@ -131,6 +131,18 @@ for (const [name, col] of [
 
 // ── Helper: Excel row → DB row ────────────────────────────────────────────────
 function excelRowToDb(row, month) {
+  // Amount / Total Amount are ALWAYS Qty × Unit Price — computed here,
+  // not trusted from the caller. This used to be computed separately by
+  // each entry point (the scanner, the PO Editor, manual Add Entry), and
+  // the scanner once forgot to, silently saving 0 for every scanned row
+  // until that was caught. Deriving it once, centrally, at the one place
+  // every row passes through before hitting the DB means no future entry
+  // point can reintroduce that bug — whatever "AMOUNT"/"TOTAL AMOUNT"
+  // fields a caller sends are ignored in favor of this calculation.
+  const qty        = Number(row["QTY"])        || 0;
+  const unit_price = Number(row["UNIT PRICE"]) || 0;
+  const computedAmount = Math.round(qty * unit_price * 100) / 100; // round to cents
+
   return {
     month,
     pr_date:            row["PR DATE"]              || "",
@@ -146,9 +158,9 @@ function excelRowToDb(row, month) {
     specifications:     row["SPECIFICATIONS"]       || "",
     qty:                row["QTY"]                  || "",
     uom:                row["UoM"] || row["UOM"]    || "",
-    unit_price:         Number(row["UNIT PRICE"])   || 0,
-    amount:             Number(row["AMOUNT"])        || 0,
-    total_amount:       Number(row["TOTAL AMOUNT"]) || 0,
+    unit_price:         unit_price,
+    amount:             computedAmount,
+    total_amount:       computedAmount,
     payment_terms:      row["PAYMENT TERMS"]        || "",
     pr_required_date:   row["PR REQUIRED DATE"]     || "",
     date_delivered:     row["DATE DELIVERED"]       || "",

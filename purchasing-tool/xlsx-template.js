@@ -25,17 +25,21 @@
  *
  * Per-PO layout: rows sharing the same PO NUMBER are grouped together and
  * merged into one cell spanning that PO's line items for most columns —
- * see MERGE_HEADERS below for the exact list. Amount rolls up as a sum;
- * Original Price / Total Cost Savings use manually-entered values if a PO
- * has any, otherwise they're derived from the sign of each line's Amount
- * (positive lines → Original Price, negative "discount" lines → Total Cost
- * Savings) — matching the dashboard's own totalSpend/totalSavings
- * convention, since scanner-generated POs record a discount as its own
- * negative-amount line item rather than filling those two fields directly.
- * Total Amount is a formula (Original Price minus Total Cost Savings). PR
- * Required Date shows the group's Date Delivered value. Everything not in
- * MERGE_HEADERS (item code/description, specs, qty, uom, unit price, PR
- * Date Received, PO Date) stays per line item, same as a normal export.
+ * see MERGE_HEADERS below for the exact list. Amount stays per-line-item
+ * (it's just Qty × Unit Price, already computed per row — merging/summing
+ * it would hide each item's own figure). Original Price / Total Cost
+ * Savings use manually-entered values if a PO has any, otherwise they're
+ * derived from the sign of each line's Amount (positive lines → Original
+ * Price, negative "discount" lines → Total Cost Savings) — matching the
+ * dashboard's own totalSpend/totalSavings convention, since scanner-
+ * generated POs record a discount as its own negative-amount line item
+ * rather than filling those two fields directly. Total Amount is written
+ * as a plain computed value (Original Price minus Total Cost Savings) —
+ * not an Excel formula, since the number is already fully known at export
+ * time. PR Required Date shows the group's own PR Required Date value.
+ * Everything not in MERGE_HEADERS (item code/description, specs, qty, uom,
+ * unit price, amount, PR Date Received, PO Date) stays per line item, same
+ * as a normal export.
  */
 
 const path    = require("path");
@@ -68,31 +72,21 @@ HEADERS.forEach((h, i) => { COL[h] = i + 1; }); // 1-based column index
 
 // Columns merged into one cell per PO (spanning that PO's line items).
 // Everything NOT in this list stays per-line-item: PR DATE RECEIVED, PO
-// DATE, ITEM CODE, ITEM DESCRIPTION, SPECIFICATIONS, QTY, UoM, UNIT PRICE.
+// DATE, ITEM CODE, ITEM DESCRIPTION, SPECIFICATIONS, QTY, UoM, UNIT PRICE,
+// AMOUNT (Qty × Unit Price is already a per-item figure — merging it would
+// hide each item's own number behind a single summed cell).
 const MERGE_HEADERS = [
   "PR DATE", "PR NO.", "REQUESTING DEPT.", "PO NUMBER", "END USER/S",
-  "SUPPLIER'S NAME", "AMOUNT", "TOTAL AMOUNT", "PAYMENT TERMS",
+  "SUPPLIER'S NAME", "TOTAL AMOUNT", "PAYMENT TERMS",
   "PR REQUIRED DATE", "DATE DELIVERED", "REMARKS",
   "PURCHASE ORDER STATUS", "ITEMS/SERVICES", "ORIGINAL PRICE",
   "TOTAL COST SAVINGS",
 ];
 
-// Of the merged columns, AMOUNT rolls up as a plain SUM across the group's
-// line items (each item has its own Amount — merging must total them, not
-// just show the first item's number and silently drop the rest). Original
-// Price and Total Cost Savings are handled separately below, since they
-// need sign-aware splitting, not a plain sum.
-const SUM_HEADERS = ["AMOUNT"];
-
-function colLetter(n) {
-  let s = "";
-  while (n > 0) {
-    const rem = (n - 1) % 26;
-    s = String.fromCharCode(65 + rem) + s;
-    n = Math.floor((n - 1) / 26);
-  }
-  return s;
-}
+// (No columns need a plain-sum roll-up anymore now that AMOUNT stays
+// per-line-item — Original Price / Total Cost Savings below use their own
+// sign-aware split instead of a plain sum.)
+const SUM_HEADERS = [];
 
 // Group rows by PO NUMBER, preserving first-seen order of each PO and the
 // original relative order of rows within a PO. Blank/missing PO numbers are
@@ -239,11 +233,7 @@ function fillMonthSheet(sheet, monthAbbr, year, rows) {
     const anchor = group[0];
     MERGE_HEADERS.forEach(h => {
       if (["TOTAL AMOUNT", "ORIGINAL PRICE", "TOTAL COST SAVINGS"].includes(h)) return; // handled below
-      let val;
-      if (h === "PR REQUIRED DATE")   val = anchor["DATE DELIVERED"] ?? "";
-      else if (SUM_HEADERS.includes(h)) val = sum(group, h);
-      else                             val = anchor[h] ?? "";
-      sheet.getCell(startRow, COL[h]).value = val;
+      sheet.getCell(startRow, COL[h]).value = anchor[h] ?? "";
     });
 
     // Original Price / Total Cost Savings: prefer manually entered per-line
@@ -266,12 +256,7 @@ function fillMonthSheet(sheet, monthAbbr, year, rows) {
 
     sheet.getCell(startRow, COL["ORIGINAL PRICE"]).value      = originalPrice;
     sheet.getCell(startRow, COL["TOTAL COST SAVINGS"]).value  = totalSavings;
-
-    const origLetter = colLetter(COL["ORIGINAL PRICE"]);
-    const savLetter  = colLetter(COL["TOTAL COST SAVINGS"]);
-    sheet.getCell(startRow, COL["TOTAL AMOUNT"]).value = {
-      formula: `${origLetter}${startRow}-${savLetter}${startRow}`,
-    };
+    sheet.getCell(startRow, COL["TOTAL AMOUNT"]).value         = originalPrice - totalSavings;
 
     r = endRow + 1;
   });
