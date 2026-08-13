@@ -490,8 +490,6 @@
         <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
         <button class="btn btn-primary" id="modal-save-btn"><i data-lucide="save" style="width:13px;height:13px;"></i> Save Entry</button>
       </div>
-<<<<<<< HEAD
-=======
     </div>
   </div>
 </div>
@@ -571,7 +569,6 @@
         <button class="btn btn-secondary" id="po-editor-cancel-btn">Cancel</button>
         <button class="btn btn-primary" id="po-editor-save-btn"><i data-lucide="save" style="width:13px;height:13px;"></i> Save PO</button>
       </div>
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
     </div>
   </div>
 </div>
@@ -584,13 +581,8 @@
     <div class="confirm-remove-icon" style="background:#3a1a1a;color:var(--red);margin:0 auto 10px;">
       <i data-lucide="trash-2" style="width:20px;height:20px;"></i>
     </div>
-<<<<<<< HEAD
-    <h3 style="font-size:16px;font-weight:700;">Delete this entry?</h3>
-    <p style="font-size:13px;color:var(--text-2);margin-top:6px;">This cannot be undone. The PO file attached (if any) will also be deleted.</p>
-=======
     <h3 style="font-size:16px;font-weight:700;" id="confirm-modal-title">Delete this entry?</h3>
     <p style="font-size:13px;color:var(--text-2);margin-top:6px;" id="confirm-modal-text">This cannot be undone. The PO file attached (if any) will also be deleted.</p>
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
     <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
       <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
       <button class="btn btn-danger" id="confirm-delete">Delete</button>
@@ -1312,22 +1304,12 @@ function openEdit(id) {
   document.querySelectorAll("#form-grid [data-field]").forEach(el => {
     el.value = row[el.dataset.field] ?? "";
   });
-<<<<<<< HEAD
-  document.getElementById("modal-delete-btn").style.display = "inline-flex";
-  document.getElementById("entry-modal").classList.add("open");
-}
-function closeModal() {
-  document.getElementById("entry-modal").classList.remove("open");
-  document.getElementById("modal-delete-btn").style.display = "none";
-  editingId = null;
-=======
   autoCalc(); // recompute Amount/Total — setting .value above doesn't fire "input"
   const delBtn = document.getElementById("modal-delete-btn");
   delBtn.style.display = "inline-flex";
   delBtn.innerHTML = '<i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete Entry';
   document.getElementById("entry-modal").classList.add("open");
   lucide.createIcons();
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
 }
 
 // Opened from the PO group header's pencil ("Edit PO details"). Editing still
@@ -1589,13 +1571,9 @@ document.getElementById("entry-modal").addEventListener("click", e => {
   if (e.target === document.getElementById("entry-modal")) closeModal();
 });
 document.getElementById("modal-delete-btn").addEventListener("click", () => {
-<<<<<<< HEAD
-  if (editingId) confirmDelete(editingId);
-=======
   if (!editingId) return;
   if (editingGroupPoNumber) confirmDeletePO(editingGroupPoNumber);
   else confirmDelete(editingId);
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
 });
 // ═══════════════════════════════════════════════════════════════════════════
 // DELETE
@@ -1633,10 +1611,7 @@ document.getElementById("confirm-delete").addEventListener("click", async () => 
       toast(deleteTargetPoNumber ? `PO deleted (${d.deleted} item${d.deleted===1?"":"s"})` : "Entry deleted");
       document.getElementById("confirm-modal").classList.remove("open");
       deleteTargetId = null;
-<<<<<<< HEAD
-=======
       deleteTargetPoNumber = null;
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
       closeModal();
       await loadMonth();
     } else { toast(d.error || "Delete failed", "error"); }

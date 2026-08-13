@@ -686,10 +686,6 @@ function supplierCount() {
 }
 
 module.exports = { db, insertRow, insertMany, updateRow, updateRowFile,
-<<<<<<< HEAD
-                   deleteRow, getByMonth, getMonths, findByPoNumber, buildDashboard,
-=======
                    deleteRow, deleteByPoNumber, overwriteByPoNumber, getByMonth, getMonths, findByPoNumber, buildDashboard,
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
                    getAllSuppliers, importSuppliers, upsertSuppliers, insertSupplier,
                    updateSupplier, deleteSupplier, supplierCount };

@@ -58,33 +58,22 @@
 
     .action-grid {
       display: grid;
-<<<<<<< HEAD
       grid-template-columns: repeat(4, 1fr);
-=======
-      grid-template-columns: repeat(3, 1fr);
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
       grid-auto-rows: 1fr;
       gap: 5px;
       margin-top: 20px;
       width: 100%;
-<<<<<<< HEAD
       max-width: 1180px;
-=======
-      max-width: 900px;
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
       opacity: 0;
     }
     .action-grid.ready {
       opacity: 1;
       transition: opacity 0.15s ease;
-<<<<<<< HEAD
     }
     /* Once the login card is removed, collapse back to the original 3-col layout */
     .action-grid.collapsed {
       grid-template-columns: repeat(3, 1fr);
       max-width: 900px;
-=======
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
     }
 
     .action-card {
@@ -227,7 +216,6 @@
       .action-grid, .action-grid.collapsed { grid-template-columns: 1fr; max-width: 320px; }
     }
 
-<<<<<<< HEAD
     /* ── Login card: lives inside the action grid itself, spanning 2 rows ── */
     .login-panel {
       grid-column: 1;
@@ -296,8 +284,6 @@
       .login-panel { grid-column: auto; grid-row: auto; }
     }
 
-=======
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
     .logout-fab {
       position: fixed;
       bottom: 24px;
@@ -369,7 +355,6 @@
     </p>
 
     <div class="action-grid" id="actionGrid">
-<<<<<<< HEAD
 
       <div class="login-panel" id="loginPanel">
         <div class="login-form-wrap">
@@ -390,8 +375,6 @@
           </div>
         </div>
       </div>
-=======
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
 
       <a href="scanner.html" class="action-card">
         <div class="action-icon blue">
@@ -477,7 +460,6 @@
   </button>
 <script>lucide.createIcons();</script>
 <script>
-<<<<<<< HEAD
 (function () {
   const panel    = document.getElementById('loginPanel');
   const grid     = document.getElementById('actionGrid');
@@ -744,21 +726,6 @@
     // Let the login-panel script play the reverse animation instead of
     // doing a hard reload straight back to the login screen.
     document.dispatchEvent(new CustomEvent('app:logged-out'));
-=======
-// index.html is only ever reached while authenticated (the server bounces
-// anonymous visitors to login.html first), so this just reveals the grid
-// and wires up the logout button — no in-page login handling needed here.
-(function () {
-  document.getElementById('actionGrid').classList.add('ready');
-
-  const fab = document.getElementById('logoutFab');
-  fab.hidden = false;
-  requestAnimationFrame(() => fab.classList.add('show'));
-
-  fab.addEventListener('click', async () => {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.href = 'login.html';
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
   });
 })();
 </script>

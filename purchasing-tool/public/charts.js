@@ -226,15 +226,11 @@ function renderKPIs(data) {
   const total = data.monthlySpending.reduce((s, m) => s + (m.total || 0), 0);
   // Savings = sum of abs(negative items) across all months — calculated in db.js
   const totalSavings = data.monthlySpending.reduce((s, m) => s + (m.savings || 0), 0);
-<<<<<<< HEAD
-  const poCount = Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
-=======
   // totalPOs is grouped by db.js the same way Monitoring's table groups rows
   // (one PO per non-blank PO NUMBER, each blank-PO-NUMBER row counted on its
   // own) — summing statusCounts used to undercount because that bucket data
   // came from a query that silently dropped blank-PO-number/blank-status rows.
   const poCount = data.totalPOs ?? Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
->>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
 
   document.getElementById("kpi-total").textContent    = fmt(total);
   document.getElementById("kpi-net").textContent      = fmt(total - totalSavings);
