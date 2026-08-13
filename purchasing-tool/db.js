@@ -18,6 +18,19 @@ const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
+// ── Canonical PO status values ────────────────────────────────────────────────
+// OPEN_PR    — default state the moment a row is created (e.g. via the scanner)
+// PROCESSED  — auto-applied the moment a PO file is attached
+// SERVED / CANCELLED — only ever set by a human via the edit form; the system
+//              never overwrites these two automatically once they're set.
+const STATUS = {
+  OPEN_PR:    "OPEN PR (processing)",
+  PROCESSED:  "PROCESSED (await for delivery)",
+  SERVED:     "SERVED",
+  CANCELLED:  "CANCELLED PR/PO",
+};
+
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS purchase_orders (
@@ -118,6 +131,18 @@ for (const [name, col] of [
 
 // ── Helper: Excel row → DB row ────────────────────────────────────────────────
 function excelRowToDb(row, month) {
+  // Amount / Total Amount are ALWAYS Qty × Unit Price — computed here,
+  // not trusted from the caller. This used to be computed separately by
+  // each entry point (the scanner, the PO Editor, manual Add Entry), and
+  // the scanner once forgot to, silently saving 0 for every scanned row
+  // until that was caught. Deriving it once, centrally, at the one place
+  // every row passes through before hitting the DB means no future entry
+  // point can reintroduce that bug — whatever "AMOUNT"/"TOTAL AMOUNT"
+  // fields a caller sends are ignored in favor of this calculation.
+  const qty        = Number(row["QTY"])        || 0;
+  const unit_price = Number(row["UNIT PRICE"]) || 0;
+  const computedAmount = Math.round(qty * unit_price * 100) / 100; // round to cents
+
   return {
     month,
     pr_date:            row["PR DATE"]              || "",
@@ -133,9 +158,9 @@ function excelRowToDb(row, month) {
     specifications:     row["SPECIFICATIONS"]       || "",
     qty:                row["QTY"]                  || "",
     uom:                row["UoM"] || row["UOM"]    || "",
-    unit_price:         Number(row["UNIT PRICE"])   || 0,
-    amount:             Number(row["AMOUNT"])        || 0,
-    total_amount:       Number(row["TOTAL AMOUNT"]) || 0,
+    unit_price:         unit_price,
+    amount:             computedAmount,
+    total_amount:       computedAmount,
     payment_terms:      row["PAYMENT TERMS"]        || "",
     pr_required_date:   row["PR REQUIRED DATE"]     || "",
     date_delivered:     row["DATE DELIVERED"]       || "",
@@ -329,25 +354,23 @@ const stmts = {
   `),
 
   supplierBreakdown: db.prepare(`
-    SELECT supplier_name AS name,
+    SELECT CASE WHEN TRIM(supplier_name) = '' THEN '(No Supplier)' ELSE supplier_name END AS name,
            SUM(CASE WHEN CAST(qty AS REAL) * unit_price > 0
                     THEN CAST(qty AS REAL) * unit_price
                     ELSE 0 END) AS total
     FROM purchase_orders
-    WHERE supplier_name != ''
-    GROUP BY supplier_name
+    GROUP BY name
     ORDER BY total DESC
     LIMIT 10
   `),
 
   deptSpending: db.prepare(`
-    SELECT requesting_dept AS name,
+    SELECT CASE WHEN TRIM(requesting_dept) = '' THEN '(No Department)' ELSE requesting_dept END AS name,
            SUM(CASE WHEN CAST(qty AS REAL) * unit_price > 0
                     THEN CAST(qty AS REAL) * unit_price
                     ELSE 0 END) AS total
     FROM purchase_orders
-    WHERE requesting_dept != ''
-    GROUP BY requesting_dept
+    GROUP BY name
     ORDER BY total DESC
   `),
 
@@ -358,15 +381,19 @@ const stmts = {
     GROUP BY po_status
   `),
 
+  // Raw per-row data for grouping POs the same way Monitoring's table does —
+  // see buildDashboard() below. (statusCounts above is kept for reference/
+  // backward compat but is no longer used by buildDashboard.)
+  statusRaw: db.prepare(`SELECT id, po_number, po_status FROM purchase_orders`),
+
   savingsData: db.prepare(`
-    SELECT supplier_name AS "SUPPLIER'S NAME",
+    SELECT CASE WHEN TRIM(supplier_name) = '' THEN '(No Supplier)' ELSE supplier_name END AS "SUPPLIER'S NAME",
            SUM(CASE WHEN CAST(qty AS REAL) * unit_price > 0
                     THEN CAST(qty AS REAL) * unit_price ELSE 0 END) AS "TOTAL AMOUNT",
            SUM(CASE WHEN CAST(qty AS REAL) * unit_price < 0
                     THEN ABS(CAST(qty AS REAL) * unit_price) ELSE 0 END) AS "TOTAL COST SAVINGS"
     FROM purchase_orders
-    WHERE supplier_name != ''
-    GROUP BY supplier_name
+    GROUP BY "SUPPLIER'S NAME"
     ORDER BY "TOTAL COST SAVINGS" DESC
   `),
 
@@ -408,6 +435,9 @@ const stmts = {
 
 function insertRow(apiRow, month) {
   const row = excelRowToDb(apiRow, month);
+  // A freshly created row (manual add, or scanner import) always starts as
+  // an open PR unless a status was explicitly supplied.
+  if (!row.po_status || !row.po_status.trim()) row.po_status = STATUS.OPEN_PR;
   const info = stmts.insert.run(row);
   return info.lastInsertRowid;
 }
@@ -415,7 +445,9 @@ function insertRow(apiRow, month) {
 function insertMany(rows) {
   const run = db.transaction((list) => {
     for (const { row, month } of list) {
-      stmts.insert.run(excelRowToDb(row, month));
+      const dbRow = excelRowToDb(row, month);
+      if (!dbRow.po_status || !dbRow.po_status.trim()) dbRow.po_status = STATUS.OPEN_PR;
+      stmts.insert.run(dbRow);
     }
   });
   run(rows);
@@ -428,10 +460,54 @@ function updateRow(id, apiRow, month) {
 
 function updateRowFile(id, filename) {
   stmts.updateFile.run(filename, id);
+  bumpStatusOnFileAttach(id);
+}
+
+// Auto-promote a row to PROCESSED once it has a PO file — but never override
+// a status the user set by hand (SERVED / CANCELLED).
+function bumpStatusOnFileAttach(id) {
+  const row = db.prepare("SELECT po_status FROM purchase_orders WHERE id = ?").get(id);
+  if (!row) return;
+  const cur = (row.po_status || "").toLowerCase();
+  const isManuallyLocked = cur.includes("served") || cur.includes("cancel");
+  if (!isManuallyLocked) {
+    db.prepare("UPDATE purchase_orders SET po_status = ? WHERE id = ?")
+      .run(STATUS.PROCESSED, id);
+  }
 }
 
 function deleteRow(id) {
   stmts.delete.run(id);
+}
+
+// Deletes every row belonging to a PO number in one go. Returns the deleted
+// rows' ids and po_file values so the caller can clean up any attached files.
+function deleteByPoNumber(poNumber) {
+  const rows = db.prepare("SELECT id, po_file FROM purchase_orders WHERE po_number = ?").all(poNumber);
+  if (!rows.length) return [];
+  db.prepare("DELETE FROM purchase_orders WHERE po_number = ?").run(poNumber);
+  return rows;
+}
+
+// Called when the scanner re-saves a PO that already exists in Monitoring
+// and the user confirmed "Overwrite & Save". Wipes out the old rows for
+// that PO number, but hands back anything that should survive the
+// overwrite: a manually-set SERVED/CANCELLED status (never silently
+// clobbered by a re-scan) and any PO file already attached (so re-scanning
+// doesn't orphan a PDF someone already uploaded).
+function overwriteByPoNumber(poNumber) {
+  const oldRows = db.prepare("SELECT po_status, po_file FROM purchase_orders WHERE po_number = ?").all(poNumber);
+  if (!oldRows.length) return { status: "", file: "" };
+
+  let preservedStatus = "";
+  for (const r of oldRows) {
+    const s = (r.po_status || "").toLowerCase();
+    if (s.includes("served") || s.includes("cancel")) { preservedStatus = r.po_status; break; }
+  }
+  const preservedFile = (oldRows.find(r => r.po_file) || {}).po_file || "";
+
+  db.prepare("DELETE FROM purchase_orders WHERE po_number = ?").run(poNumber);
+  return { status: preservedStatus, file: preservedFile };
 }
 
 function getByMonth(month) {
@@ -466,20 +542,39 @@ function buildDashboard() {
     savings: savingsMap[m],
   }));
 
-  const normStatus = { Served: 0, "For Delivery": 0, Pending: 0, Cancelled: 0 };
-  stmts.statusCounts.all().forEach(r => {
-    const u = (r.po_status || "").toLowerCase();
-    if      (u.includes("served") || u.includes("complete")) normStatus["Served"]       += r.cnt;
-    else if (u.includes("deliver"))                          normStatus["For Delivery"] += r.cnt;
-    else if (u.includes("cancel"))                           normStatus["Cancelled"]    += r.cnt;
-    else                                                     normStatus["Pending"]      += r.cnt;
+  // Count POs and bucket their status EXACTLY the way Monitoring's table
+  // groups rows: rows sharing a non-blank PO NUMBER are one PO; rows with no
+  // PO NUMBER each count as their own solo PO. The old version ran
+  // `WHERE po_status != '' AND po_number != ''` in SQL, which silently
+  // dropped every blank-PO-number row (manual/solo entries) and every
+  // blank-status row from the count entirely — undercounting "Total POs" on
+  // the Dashboard compared to what Monitoring actually shows.
+  const poGroups = new Map(); // po_number (or a per-row solo key) -> Set of statuses seen across its rows
+  stmts.statusRaw.all().forEach(r => {
+    const key = (r.po_number || "").trim() || `__solo_${r.id}`;
+    if (!poGroups.has(key)) poGroups.set(key, new Set());
+    poGroups.get(key).add((r.po_status || "").toLowerCase());
   });
+
+  const normStatus = { Served: 0, "Open PR": 0, Processed: 0, Cancelled: 0 };
+  poGroups.forEach(statusSet => {
+    // A PO's rows normally share one status, but if they ever disagree,
+    // prefer the more "final" status — same priority order Monitoring's
+    // own badge logic uses (served/processed/cancelled outrank open).
+    let bucket = "Open PR";
+    if      ([...statusSet].some(s => s.includes("served")))   bucket = "Served";
+    else if ([...statusSet].some(s => s.includes("processed")))bucket = "Processed";
+    else if ([...statusSet].some(s => s.includes("cancel")))   bucket = "Cancelled";
+    normStatus[bucket]++;
+  });
+  const totalPOs = poGroups.size;
 
   return {
     monthlySpending,
     supplierBreakdown: stmts.supplierBreakdown.all(),
     deptSpending:      stmts.deptSpending.all(),
     statusCounts:      normStatus,
+    totalPOs,
     savingsData:       stmts.savingsData.all(),
     rawRows:           stmts.rowCount.get().cnt,
     sheetsDetected:    getMonths(),
@@ -591,6 +686,10 @@ function supplierCount() {
 }
 
 module.exports = { db, insertRow, insertMany, updateRow, updateRowFile,
+<<<<<<< HEAD
                    deleteRow, getByMonth, getMonths, findByPoNumber, buildDashboard,
+=======
+                   deleteRow, deleteByPoNumber, overwriteByPoNumber, getByMonth, getMonths, findByPoNumber, buildDashboard,
+>>>>>>> c16602719a7c662c5a52c25710cffccb199f9ed6
                    getAllSuppliers, importSuppliers, upsertSuppliers, insertSupplier,
                    updateSupplier, deleteSupplier, supplierCount };

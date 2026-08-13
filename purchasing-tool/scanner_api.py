@@ -27,6 +27,27 @@ except ImportError:
 
 MIN_NATIVE_CHARS = 40
 
+# ── Cost Center lookup ────────────────────────────────────────────────────────
+# Cost Center codes on the PO map to a specific store or internal department
+# (e.g. "10024" -> "Robinsons Ermita Adult 10024"). This ships as JSON right
+# next to this script (NOT under data/, which is gitignored local content —
+# this is versioned reference data). Missing/unloadable file just means codes
+# are shown as-is instead of translated; never a hard failure.
+COST_CENTER_PATH = Path(__file__).parent / "cost_centers.json"
+try:
+    with open(COST_CENTER_PATH, "r", encoding="utf-8") as _f:
+        COST_CENTERS = json.load(_f)
+except Exception:
+    COST_CENTERS = {}
+
+def lookup_cost_center(code):
+    """Given a raw cost-center code (may have trailing ';'/whitespace, e.g.
+    '10024;'), return its real name, or the cleaned code itself if unknown."""
+    if not code:
+        return ""
+    clean = code.strip().rstrip(";").strip()
+    return COST_CENTERS.get(clean, clean)
+
 # ── Text extraction ───────────────────────────────────────────────────────────
 
 def _ocr_page(page):
@@ -49,6 +70,80 @@ def extract_pdf_text(pdf_path):
     doc.close()
     return "\n".join(parts), method
 
+# ── Fallback: rebuild reading order from word bounding boxes ──────────────────
+# Some PDFs (typically report-engine templates like the one used here) store
+# each TABLE COLUMN as its own text block — every "ITEM NO" value stacked
+# together, then every "QTY", then every "DESCRIPTION", etc. PyMuPDF's normal
+# `sort=True` extraction orders text block-by-block, so it dumps each column
+# as a run of consecutive lines instead of interleaving them row by row. The
+# regex-based item parser expects one row per line, so on documents like this
+# it silently matches nothing for the numbered items (while a simple two-value
+# "label amount amount" charge line still happens to survive intact) — meaning
+# only the charges show up and every numbered item goes missing.
+#
+# This rebuilds text by clustering words into visual rows using their actual
+# Y position on the page, then sorting each row's words left-to-right by X —
+# i.e. reconstructing the row PyMuPDF's block order threw away.
+def _extract_words_as_lines(page, y_tol=3):
+    words = page.get_text("words")  # (x0, y0, x1, y1, text, block_no, line_no, word_no)
+    if not words:
+        return ""
+    words = sorted(words, key=lambda w: (w[1], w[0]))
+    lines, bucket, bucket_top = [], [], None
+    for w in words:
+        y0 = w[1]
+        if bucket and (y0 - bucket_top) > y_tol:
+            bucket.sort(key=lambda x: x[0])
+            lines.append(" ".join(x[4] for x in bucket))
+            bucket, bucket_top = [], None
+        bucket.append(w)
+        bucket_top = y0 if bucket_top is None else min(bucket_top, y0)
+    if bucket:
+        bucket.sort(key=lambda x: x[0])
+        lines.append(" ".join(x[4] for x in bucket))
+    return "\n".join(lines)
+
+def _amount_sum(items):
+    total = 0.0
+    for it in items:
+        try:
+            total += float((it.get("amount") or "0").replace(",", ""))
+        except ValueError:
+            pass
+    return total
+
+# Heuristic: does this extraction look like it missed the numbered item rows?
+def _looks_incomplete(text, header, items):
+    regular = [it for it in items if not it.get("is_charge")]
+    # Signal 1 — numbered item markers ("001", "002", …) appear in the raw
+    # text, meaning the table exists, but none of them were parsed into rows.
+    has_item_markers = bool(re.search(r"(?m)^0\d{2}\s*$", text))
+    if has_item_markers and not regular:
+        return True
+    # Signal 2 — extracted line total is far off from the PO's printed total.
+    stated = header.get("TOTAL_AMOUNT")
+    if stated:
+        try:
+            stated_val = float(stated.replace(",", ""))
+            if stated_val > 0 and abs(_amount_sum(items) - stated_val) / stated_val > 0.05:
+                return True
+        except ValueError:
+            pass
+    return False
+
+# Did the reflowed re-parse actually do better than the original?
+def _is_better(retry_items, orig_items, header):
+    stated = header.get("TOTAL_AMOUNT")
+    if stated:
+        try:
+            stated_val = float(stated.replace(",", ""))
+            return abs(_amount_sum(retry_items) - stated_val) < abs(_amount_sum(orig_items) - stated_val)
+        except ValueError:
+            pass
+    retry_count = len([it for it in retry_items if not it.get("is_charge")])
+    orig_count  = len([it for it in orig_items  if not it.get("is_charge")])
+    return retry_count > orig_count
+
 # ── Header parsing ────────────────────────────────────────────────────────────
 
 def _clean(s):
@@ -61,6 +156,30 @@ def _parse_amount(s):
         return str(float(s))
     except ValueError:
         return s
+
+def _looks_like_real_value(s):
+    """
+    RO NO / JOB ORDER NO / COST CENTER values are digits, dates, and
+    semicolons — never ordinary prose. When a field is left BLANK on the
+    PDF (no RO NO / JOB ORDER NO printed at all), the value cell contributes
+    no text, so the extraction regex's "next line" can end up grabbing an
+    unrelated line instead — usually the boilerplate "Please accept our
+    order in accordance with prices..." instruction, or another blank
+    label like "COST CENTER:"/"ACCOUNT NO:" that collapsed onto the same
+    line for the same reason. Reject anything that looks like that instead
+    of a real value, so the field is correctly left blank rather than
+    filled with garbage.
+    """
+    if not s:
+        return False
+    s_low = s.lower()
+    if "please accept" in s_low or "in accordance" in s_low or "notify us" in s_low:
+        return False
+    # A real RO/JOB/cost-center value never contains a run of 4+ letters
+    # (an actual English word) — it's numeric/date/semicolon text.
+    if re.search(r"[A-Za-z]{4,}", s):
+        return False
+    return True
 
 def extract_header(text):
     h = {}
@@ -77,15 +196,64 @@ def extract_header(text):
     m = re.search(r"\bDATE:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})", text)
     if m: h["PO_DATE"] = m.group(1)
 
-    # RO NO / JOB ORDER
+    # RO NO / JOB ORDER — left blank on the PO -> stays blank (see
+    # _looks_like_real_value above), instead of picking up the next
+    # unrelated line of text. Also guards against a related scramble where
+    # a blank RO NO picks up the PO's own DATE value instead.
+    def _is_valid_ro_no(s):
+        if not _looks_like_real_value(s):
+            return False
+        if h.get("PO_DATE") and s.strip().rstrip(";") == h["PO_DATE"]:
+            return False
+        # A legitimate value always has more structure than a bare date —
+        # either a leading RO-number digit sequence, or (for a JOB ORDER NO
+        # on its own) a trailing ";". A date with nothing else attached is
+        # the signature of the PO's own DATE bleeding into this capture.
+        if re.fullmatch(r"[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}", s.strip()):
+            return False
+        return True
+
     m = re.search(r"RO NO:\s*JOB ORDER NO:\s*\n\s*([^\n]+)", text, re.I)
-    if m:
-        h["RO_NO"] = _clean(m.group(1))
+    combined = None
+    if m and _is_valid_ro_no(_clean(m.group(1))):
+        combined = _clean(m.group(1))
     else:
         m = re.search(r"RO NO:\s*\n\s*([^\n]+)", text, re.I)
-        if m: h["RO_NO"] = _clean(m.group(1))
+        if m and _is_valid_ro_no(_clean(m.group(1))):
+            combined = _clean(m.group(1))
 
-    # Cost center
+    if combined:
+        # RO NO and JOB ORDER NO sit in separate columns on the same visual
+        # row, so a filled-in row extracts as ONE combined string, e.g.
+        # "0060002171 07/23/26;" (RO number + job order date). PR NO. must
+        # only ever be the RO number itself — split the job order date back
+        # off instead of leaving it tacked on.
+        parts = combined.split(None, 1)
+        first = parts[0]
+        rest  = parts[1].strip() if len(parts) > 1 else ""
+        if re.fullmatch(r"\d+", first):
+            # first token is a pure digit sequence -> a real RO number
+            h["RO_NO"] = first
+            if rest:
+                h["JOB_ORDER_NO"] = rest  # captured for later use — not yet mapped to a column
+        else:
+            # first token isn't digits-only (e.g. it's itself a date) ->
+            # RO NO is actually blank here; the whole thing is JOB ORDER NO
+            h["JOB_ORDER_NO"] = combined
+
+    # Cost center -> mapped to END USER/S in build_rows, not SPECIFICATIONS
+    # (this data is used internally as an end-user/branch/store code).
+    #
+    # NOTE: unlike RO NO above, this does NOT run the captured line through
+    # _looks_like_real_value() first. When ACCOUNT NO is blank, the "line
+    # after COST CENTER:/ACCOUNT NO:" can end up being an unrelated column's
+    # boilerplate text ("delivery and specification given") with the real
+    # Cost Center value still tacked onto the very end of it — rejecting
+    # the whole line for containing prose would throw the real value away
+    # too. The trailing-digit regex below is self-validating: it only ever
+    # pulls out a clean numeric/semicolon code from the END of the string,
+    # so it safely ignores any boilerplate prefix and naturally finds
+    # nothing (leaving COST_CENTER unset) when there's no real value at all.
     m = re.search(r"COST CENTER:\s*ACCOUNT NO:\s*\n([^\n]*)", text, re.I)
     if not m: m = re.search(r"COST CENTER:\s*\n([^\n]*)", text, re.I)
     if m:
@@ -255,19 +423,19 @@ def build_rows(header, items):
             "REQUESTING DEPT.":      "",
             "PO DATE":               header.get("PO_DATE", ""),
             "PO NUMBER":             header.get("PO_NUMBER", ""),
-            "END USER/S":            "",
+            "END USER/S":            lookup_cost_center(header.get("COST_CENTER", "")) if i == 0 else "",
             "SUPPLIER'S NAME":       header.get("SUPPLIER", ""),
             "ITEM CODE":             it.get("code", ""),
             "ITEM DESCRIPTION":      it.get("desc", ""),
-            "SPECIFICATIONS":        header.get("COST_CENTER", "") if i == 0 else "",
+            "SPECIFICATIONS":        "",
             "QTY":                   it.get("qty", ""),
             "UoM":                   it.get("unit", ""),
             "UNIT PRICE":            it.get("unit_price", ""),
             "AMOUNT":                "",
             "TOTAL AMOUNT":          "",
             "PAYMENT TERMS":         header.get("TERMS", "")      if i == 0 else "",
-            "PR REQUIRED DATE":      "",
-            "DATE DELIVERED":        header.get("DELIVER_BY", "") if i == 0 else "",
+            "PR REQUIRED DATE":      header.get("DELIVER_BY", "") if i == 0 else "",
+            "DATE DELIVERED":        "",
             "REMARKS":               "",
             "PURCHASE ORDER STATUS": "",
             "ITEMS/SERVICES":        "",
@@ -291,6 +459,29 @@ def process_pdf(pdf_path_str):
         print("=== RAW TEXT END ===", file=sys.stderr)
     header      = extract_header(text)
     items       = parse_items(text)
+
+    # Some report-engine PDFs store each table column as its own text block,
+    # which scrambles the normal block-ordered extraction into column-major
+    # order and drops the numbered item rows entirely (see _extract_words_as_lines
+    # above). If that looks like what happened here, rebuild the text from word
+    # positions instead and re-parse — only swapping in the retry if it's better.
+    if method == "native" and _looks_incomplete(text, header, items):
+        try:
+            doc = fitz.open(pdf_path)
+            reflow_text = "\n".join(_extract_words_as_lines(p) for p in doc)
+            doc.close()
+            reflow_items = parse_items(reflow_text)
+            if _is_better(reflow_items, items, header):
+                if DEBUG:
+                    import sys
+                    print("=== REFLOW TEXT (used) ===", file=sys.stderr)
+                    print(reflow_text, file=sys.stderr)
+                text, items, method = reflow_text, reflow_items, "native+reflow"
+        except Exception as e:
+            if DEBUG:
+                import sys
+                print(f"=== REFLOW FAILED: {e} ===", file=sys.stderr)
+
     rows        = build_rows(header, items)
 
     # Separate regular items vs charges for reporting
