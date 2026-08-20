@@ -1653,6 +1653,41 @@ document.getElementById("status-filter").addEventListener("change", applyFilter)
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ENTER-TO-NEXT-FIELD
+// Pressing Enter in any text/number/date input or select inside a modal
+// jumps focus to the next visible, non-disabled, non-readonly field —
+// instead of doing nothing (or, worse, nothing you'd notice). Uses event
+// delegation on the modal container, so it automatically covers item rows
+// added later by "Add Item Row" in the PO Editor without re-binding.
+// On the last field, Enter just blurs (no <form> exists here, so there's
+// no submit behavior to worry about).
+// ═══════════════════════════════════════════════════════════════════════════
+function enableEnterToNextField(containerEl) {
+  if (!containerEl) return;
+  containerEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const tag = e.target.tagName;
+    if (tag !== "INPUT" && tag !== "SELECT") return;
+
+    e.preventDefault(); // stop selects from re-triggering "change" oddly on Enter
+
+    const focusable = Array.from(containerEl.querySelectorAll("input, select"))
+      .filter(el => !el.disabled && !el.readOnly && el.offsetParent !== null);
+
+    const idx = focusable.indexOf(e.target);
+    if (idx === -1) return;
+
+    const next = focusable[idx + 1];
+    if (next) {
+      next.focus();
+      if (typeof next.select === "function" && next.tagName === "INPUT") next.select();
+    } else {
+      e.target.blur();
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════
 (async function init() {
@@ -1663,6 +1698,9 @@ document.getElementById("status-filter").addEventListener("change", applyFilter)
   await loadMonth();
   loadAllCounts();
   lucide.createIcons();
+
+  enableEnterToNextField(document.getElementById("entry-modal"));
+  enableEnterToNextField(document.getElementById("po-editor-modal"));
 })();
 </script>
 <script src="auth-nav.js"></script>
