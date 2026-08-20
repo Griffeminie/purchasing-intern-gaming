@@ -1680,7 +1680,16 @@ function enableEnterToNextField(containerEl) {
     const next = focusable[idx + 1];
     if (next) {
       next.focus();
-      if (typeof next.select === "function" && next.tagName === "INPUT") next.select();
+      if (next.tagName === "SELECT") {
+        // Auto-open the dropdown (e.g. PO Status) so the user can arrow
+        // through options right away. Focusing alone doesn't change the
+        // selected value — on edit, that's still whatever status the entry
+        // already had — so pressing Enter again with no arrow key in
+        // between just confirms the same status and moves to the next field.
+        try { next.showPicker(); } catch (err) { /* showPicker() unsupported in this browser — select is still focused and arrow keys work natively */ }
+      } else if (typeof next.select === "function" && next.tagName === "INPUT") {
+        next.select();
+      }
     } else {
       e.target.blur();
     }
