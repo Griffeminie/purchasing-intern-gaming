@@ -8,7 +8,7 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
     body { min-height:100vh; display:flex; flex-direction:column; }
-    .page-wrap { flex:1; max-width:1200px; margin:0 auto; padding:28px 20px 80px; width:100%; box-sizing:border-box; }
+    .page-wrap { flex:1; max-width:1500px; margin:0 auto; padding:28px 0 80px; width:100%; box-sizing:border-box; }
 
     /* ── Steps ──────────────────────────────────────────────── */
     .steps { display:flex; gap:0; margin-bottom:28px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
@@ -21,6 +21,20 @@
 
     /* ── Cards ──────────────────────────────────────────────── */
     .c-card { background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:22px; margin-bottom:18px; }
+    /* The supplier and review workspaces use the full page width while
+       retaining the same rounded-panel treatment as the rest of the UI. */
+    #suppliers-card {
+      width:100%; box-sizing:border-box;
+      margin-left:0; margin-right:0;
+      padding-left:24px; padding-right:24px;
+      border-radius:12px;
+    }
+    #review-section > .c-card {
+      width:100%; box-sizing:border-box;
+      margin-left:0; margin-right:0;
+      padding-left:14px; padding-right:14px;
+      border-radius:12px;
+    }
     .c-card-title { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-2); margin-bottom:16px; display:flex; align-items:center; gap:8px; justify-content:space-between; }
     .c-card-title-left { display:flex; align-items:center; gap:8px; }
 
@@ -77,14 +91,14 @@
     .file-retry:hover { color:var(--accent); transform:rotate(180deg); }
 
     /* ── Full quotation preview (side-by-side with fields) ────── */
-    .sup-split { display:grid; grid-template-columns:minmax(280px,42%) 1fr; gap:20px; align-items:start; }
+    .sup-split { display:grid; grid-template-columns:minmax(460px,48%) 1fr; gap:28px; align-items:start; }
     .sup-preview-col {
       position:sticky; top:20px; background:var(--bg-3); border:1px solid var(--border);
       border-radius:10px; padding:12px; max-height:calc(100vh - 40px); overflow:auto;
     }
     .sup-preview-img-wrap {
       overflow:hidden; border-radius:8px; background:var(--bg); cursor:grab;
-      display:flex; align-items:center; justify-content:center; min-height:320px;
+      display:flex; align-items:center; justify-content:center; min-height:460px;
     }
     .sup-preview-img-wrap.dragging { cursor:grabbing; }
     .sup-preview-img-wrap img {
@@ -106,9 +120,36 @@
       display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
       padding:40px 16px; text-align:center;
     }
+    .fs-preview-overlay {
+      position:fixed; inset:0; z-index:2200; display:flex; flex-direction:column;
+      background:rgba(0,0,0,.92); opacity:0; pointer-events:none;
+      transition:opacity .2s ease;
+    }
+    .fs-preview-overlay.visible { opacity:1; pointer-events:auto; }
+    .fs-preview-toolbar {
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:12px 16px; color:#fff; background:rgba(0,0,0,.45); flex-shrink:0;
+    }
+    .fs-preview-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-family:var(--font-mono); color:rgba(255,255,255,.75); }
+    .fs-preview-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .fs-preview-btn {
+      width:30px; height:30px; display:flex; align-items:center; justify-content:center;
+      border:1px solid rgba(255,255,255,.25); border-radius:6px; background:rgba(255,255,255,.08);
+      color:#fff; cursor:pointer;
+    }
+    .fs-preview-btn:hover { background:rgba(255,255,255,.18); }
+    .fs-preview-stage {
+      flex:1; min-height:0; overflow:hidden; display:flex; align-items:center; justify-content:center;
+      cursor:grab; user-select:none;
+    }
+    .fs-preview-stage.dragging { cursor:grabbing; }
+    .fs-preview-stage img { max-width:94vw; max-height:calc(100vh - 90px); width:auto; height:auto; transform-origin:center center; user-select:none; -webkit-user-drag:none; }
     @media(max-width:900px) {
+      #suppliers-card { width:100%; margin-left:0; margin-right:0; padding-left:16px; padding-right:16px; border-radius:12px; }
+      #review-section > .c-card { width:100%; margin-left:0; margin-right:0; padding-left:8px; padding-right:8px; border-radius:12px; }
       .sup-split { grid-template-columns:1fr; }
       .sup-preview-col { position:static; max-height:60vh; }
+      .sup-preview-img-wrap { min-height:320px; }
     }
 
     
@@ -163,15 +204,39 @@
     .terms-title { font-size:11px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); margin-bottom:10px; grid-column:1 / -1; }
 
     /* ── Review table ───────────────────────────────────────── */
-    .review-wrap { overflow-x:auto; border-radius:8px; border:1px solid var(--border); }
-    .review-table { width:100%; border-collapse:collapse; font-size:12px; }
-    .review-table th { background:var(--bg-3); padding:9px 11px; text-align:left; font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-2); border-bottom:1px solid var(--border); white-space:nowrap; }
-    .review-table td { padding:7px 11px; border-bottom:1px solid var(--border-2); vertical-align:middle; }
-    .review-table tr:last-child td { border-bottom:none; }
-    .review-table tr:hover td { background:var(--bg-3); }
-    .review-table input { background:none; border:none; color:var(--text); font-family:var(--font-mono); font-size:12px; outline:none; width:100%; min-width:60px; }
-    .review-table input:focus { background:var(--bg-3); border-radius:3px; padding:1px 4px; }
-    .review-table input.no-correlate::placeholder { color:#f85149; font-style:italic; }
+    .review-wrap { width:100%; overflow:visible; }
+    .review-sheet { width:100%; border-top:1px solid var(--border); border-left:1px solid var(--border); font-family:var(--font-mono); }
+    .review-grid-line { display:grid; grid-template-columns:42px minmax(120px,1.35fr) 56px 58px minmax(0,4fr) 28px; }
+    .review-grid-cell { min-width:0; border-right:1px solid var(--border); border-bottom:1px solid var(--border); }
+    .review-base-head { min-height:78px; display:flex; align-items:center; justify-content:center; padding:5px; box-sizing:border-box; text-align:center; font-size:10px; font-weight:600; text-transform:uppercase; color:var(--text-2); background:var(--bg-3); }
+    .review-supplier-area { display:grid; grid-template-columns:repeat(var(--supplier-count),minmax(0,1fr)); min-width:0; }
+    .review-supplier-column { min-width:0; border-right:1px solid var(--border); }
+    .review-supplier-column:last-child { border-right:none; }
+    .review-supplier-name { min-height:47px; display:flex; align-items:center; justify-content:center; padding:4px 5px; box-sizing:border-box; text-align:center; font-size:10px; font-weight:600; line-height:1.25; overflow-wrap:anywhere; border-bottom:1px solid var(--border); }
+    .review-supplier-subheads, .review-supplier-cells { display:grid; grid-template-columns:minmax(28px,.55fr) minmax(0,1fr) minmax(0,1.25fr); min-width:0; }
+    .review-supplier-subheads span { min-width:0; padding:4px 2px; text-align:center; font-size:10px; color:var(--text-2); border-right:1px solid var(--border); }
+    .review-supplier-subheads span:last-child, .review-supplier-cells > *:last-child { border-right:none; }
+    .review-row-cell { min-height:38px; display:flex; align-items:center; box-sizing:border-box; }
+    .review-item-number { justify-content:center; color:var(--text-2); font-size:10px; }
+    .review-cell-input { width:100%; min-width:0; height:37px; box-sizing:border-box; border:none; border-radius:0; outline:none; padding:4px 5px; background:var(--bg-2); color:var(--text); font-family:var(--font-mono); font-size:12px; }
+    textarea.review-cell-input { resize:none; overflow:hidden; line-height:1.25; }
+    .review-cell-input:focus { background:var(--bg-3); box-shadow:inset 0 0 0 2px var(--accent); }
+    .review-cell-input.no-correlate::placeholder { color:var(--red); font-size:8px; font-style:italic; }
+    .review-supplier-cells { min-height:38px; }
+    .review-supplier-cells > * { min-width:0; border-right:1px solid var(--border); }
+    .review-price-label { display:flex; align-items:center; justify-content:center; padding:2px; font-size:10px; color:var(--text-2); }
+    .review-total { display:flex; align-items:center; justify-content:center; padding:3px; box-sizing:border-box; background:var(--bg-2); color:var(--text); font-size:12px; text-align:center; overflow-wrap:anywhere; }
+    .review-remove { width:100%; height:100%; min-height:38px; display:flex; align-items:center; justify-content:center; background:var(--bg-2); border:none; color:var(--text-3); cursor:pointer; }
+    .review-remove:hover { color:var(--red); background:var(--bg-3); }
+    .review-nothing-follows { padding:4px; text-align:center; border-right:1px solid var(--border); border-bottom:1px solid var(--border); color:var(--text); font-size:9px; font-weight:600; }
+
+    @media(max-width:720px) {
+      .review-grid-line { grid-template-columns:28px minmax(74px,1.2fr) 38px 42px minmax(0,3fr) 24px; }
+      .review-base-head { font-size:7px; padding:2px; }
+      .review-supplier-name { font-size:7px; }
+      .review-supplier-subheads span, .review-price-label { font-size:8px; }
+      .review-cell-input, .review-total { font-size:11px; padding:2px; }
+    }
 
     /* Supplier column color coding */
     .th-s0 { background:#0a1f3a !important; color:#7dd3fc !important; }
@@ -179,6 +244,12 @@
     .th-s2 { background:#2a1800 !important; color:#fcd34d !important; }
     .th-s3 { background:#1a0a2e !important; color:#c4b5fd !important; }
     .th-s4 { background:#0a1a20 !important; color:#67e8f9 !important; }
+
+    body.light .th-s0 { background:#ddf4ff !important; color:#0969da !important; }
+    body.light .th-s1 { background:#d1f7d6 !important; color:#1a7f37 !important; }
+    body.light .th-s2 { background:#fff3cd !important; color:#9a6700 !important; }
+    body.light .th-s3 { background:#ede9fe !important; color:#6e40c9 !important; }
+    body.light .th-s4 { background:#cffafe !important; color:#0e7490 !important; }
 
     /* ── Buttons ────────────────────────────────────────────── */
     .cbtn { padding:9px 20px; border-radius:8px; font-size:13px; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:7px; transition:all .2s; border:1px solid var(--border); }
@@ -217,6 +288,10 @@
     .sb-working { background:#0a1f3a; color:var(--accent-2); border:1px solid #1a3a5a; }
     .sb-done    { background:#0a2010; color:var(--green); border:1px solid #1a3a1e; }
     .sb-error   { background:#3a1a1a; color:var(--red); border:1px solid #5a2d2d; }
+
+    body.light .sb-working { background:#ddf4ff; color:#0969da; border-color:#aed9fb; }
+    body.light .sb-done    { background:#d1f7d6; color:#1a7f37; border-color:#a7e9b2; }
+    body.light .sb-error   { background:#ffd7d5; color:#cf222e; border-color:#ffb3ae; }
 
     @media(max-width:768px) {
       .header-grid { grid-template-columns:1fr 1fr; }
@@ -309,6 +384,25 @@
   </div>
 
 <div class="toast-container" id="toasts"></div>
+<div class="fs-preview-overlay" id="fs-preview-overlay" onclick="closeFullscreenSupplierPreview(event)">
+  <div class="fs-preview-toolbar">
+    <span class="fs-preview-name" id="fs-preview-name"></span>
+    <div class="fs-preview-actions">
+      <span class="sp-zoom-pct" id="fs-preview-zoom-pct" style="color:rgba(255,255,255,.7);">100%</span>
+      <button class="fs-preview-btn" onclick="zoomFullscreenSupplierPreview(-0.25, event)" title="Zoom out"><i data-lucide="minus" style="width:14px;height:14px;"></i></button>
+      <button class="fs-preview-btn" onclick="zoomFullscreenSupplierPreview(0.25, event)" title="Zoom in"><i data-lucide="plus" style="width:14px;height:14px;"></i></button>
+      <button class="fs-preview-btn" onclick="rotateFullscreenSupplierPreview(-90, event)" title="Rotate left"><i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i></button>
+      <button class="fs-preview-btn" onclick="rotateFullscreenSupplierPreview(90, event)" title="Rotate right"><i data-lucide="rotate-cw" style="width:14px;height:14px;"></i></button>
+      <button class="fs-preview-btn" onclick="resetFullscreenSupplierPreview(event)" title="Reset view"><i data-lucide="maximize" style="width:14px;height:14px;"></i></button>
+      <button class="fs-preview-btn" onclick="closeFullscreenSupplierPreview(event)" title="Close"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
+    </div>
+  </div>
+  <div class="fs-preview-stage" id="fs-preview-stage"
+    onwheel="handleFullscreenPreviewWheel(event)"
+    onmousedown="startFullscreenPreviewPan(event)">
+    <img id="fs-preview-img" alt="Full-size quotation preview" />
+  </div>
+</div>
   <div class="page-wrap">
 
     <div class="lp-overlay" id="fb-overlay">
@@ -452,10 +546,7 @@
         </div>
 
         <div class="review-wrap">
-          <table class="review-table">
-            <thead id="review-thead"></thead>
-            <tbody id="review-tbody"></tbody>
-          </table>
+          <div class="review-sheet" id="review-sheet"></div>
         </div>
 
         <div style="margin-top:10px;">
@@ -495,18 +586,23 @@
 
       <div id="manual-json-panel" style="display:none;margin-bottom:12px;">
         <div style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-bottom:6px;">
-          Use this prompt with another AI agent to extract quotation data from an image, then paste its JSON response below.
+          Choose a prompt to copy and use with another AI agent.
         </div>
         <div style="position:relative;margin-bottom:10px;">
+          <select id="prompt-choice" class="f-input" onchange="updatePromptDisplay()"
+            style="margin-bottom:8px;font-size:12px;">
+            <option value="extraction">Quotation Extraction Prompt</option>
+            <option value="matching">Match Items Across Suppliers Prompt</option>
+          </select>
           <textarea id="gemini-prompt-display" class="f-input" rows="10" readonly spellcheck="false"
             style="font-family:var(--font-mono);font-size:11px;resize:vertical;width:100%;box-sizing:border-box;padding-right:42px;"></textarea>
-          <button class="btn-icon" onclick="copyGeminiPrompt()" title="Copy extraction prompt"
+          <button class="btn-icon" onclick="copyPromptText()" title="Copy selected prompt"
             style="position:absolute;right:8px;top:8px;background:var(--bg-3);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text-2);padding:5px;">
             <i data-lucide="copy" style="width:13px;height:13px;"></i>
           </button>
         </div>
         <div style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-bottom:6px;">
-          Paste one supplier's JSON response in this same field. Existing Gemini output will be replaced when you open Paste JSON.
+          Paste one supplier object or an array of supplier objects in this same field. Existing Gemini output will be replaced when you open Paste JSON.
         </div>
         <div style="display:flex;justify-content:flex-end;margin-top:8px;">
           <button class="cbtn cbtn-amber cbtn-sm" onclick="loadManualJson()">
@@ -909,7 +1005,7 @@ activeSupplierId = id;
       const panel = document.getElementById('manual-json-panel');
       panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
       if (panel.style.display === 'block') {
-        document.getElementById('gemini-prompt-display').value = GEMINI_PROMPT.trim();
+        updatePromptDisplay();
         lucide.createIcons();
       }
     }
@@ -918,13 +1014,19 @@ activeSupplierId = id;
     function openManualJsonDebug() {
       document.getElementById('debug-wrap').style.display = 'block';
       document.getElementById('manual-json-panel').style.display = 'block';
-      document.getElementById('gemini-prompt-display').value = GEMINI_PROMPT.trim();
+      updatePromptDisplay();
       document.getElementById('json-editor').value = '';
       document.getElementById('debug-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
       lucide.createIcons();
     }
 
-    async function copyGeminiPrompt() {
+    function updatePromptDisplay() {
+      const choice = document.getElementById('prompt-choice').value;
+      document.getElementById('gemini-prompt-display').value =
+        (choice === 'matching' ? ITEM_MATCH_PROMPT : GEMINI_PROMPT).trim();
+    }
+
+    async function copyPromptText() {
       const prompt = document.getElementById('gemini-prompt-display').value;
       try {
         await navigator.clipboard.writeText(prompt);
@@ -948,16 +1050,28 @@ activeSupplierId = id;
         return;
       }
 
-      const label = parsed.supplierName || `Manual Entry ${suppliers.length + 1}`;
-      const fakeFile = { name: label, dataUrl: null, type: 'manual/json' };
-      const cleaned = deepCleanStrings(parsed);
+      // ChatGPT may return multiple supplier quotations as an array. Accept
+      // both that format and the original single-supplier object format.
+      const entries = Array.isArray(parsed) ? parsed : [parsed];
+      if (!entries.length || entries.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))) {
+        toast('JSON must contain a supplier object or an array of supplier objects.', 'error', 5000);
+        return;
+      }
 
-      document.getElementById('json-editor').value = JSON.stringify(cleaned, null, 2);
-      createSupplierFromResult(fakeFile, cleaned);
+      const cleanedEntries = entries.map(deepCleanStrings);
+      document.getElementById('json-editor').value = JSON.stringify(
+        Array.isArray(parsed) ? cleanedEntries : cleanedEntries[0], null, 2
+      );
+
+      cleanedEntries.forEach((entry, index) => {
+        const label = entry.supplierName || `Manual Entry ${suppliers.length + index + 1}`;
+        const fakeFile = { name: label, dataUrl: null, type: 'manual/json' };
+        createSupplierFromResult(fakeFile, entry);
+      });
 
       document.getElementById('suppliers-card').style.display = 'block';
       document.getElementById('debug-wrap').style.display = 'block';
-      toast(`Loaded "${label}" from manual JSON.`, 'success');
+      toast(`Loaded ${cleanedEntries.length} supplier${cleanedEntries.length !== 1 ? 's' : ''} from manual JSON.`, 'success');
     }
 
     // ── Render suppliers as tabs (dynamic — works for 1, 2, 3, 4+ suppliers) ──
@@ -1208,6 +1322,112 @@ activeSupplierId = id;
       applyPreviewTransform(supplierId);
     }
 
+    // ── Full-screen supplier preview ───────────────────────────────────────
+    let fsPreviewSupplierId = null;
+    let fsDragging = false;
+    let fsDragStartX = 0, fsDragStartY = 0;
+
+    function applyFullscreenSupplierPreview() {
+      const s = suppliers.find(x => x.id === fsPreviewSupplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      const img = document.getElementById('fs-preview-img');
+      const pct = document.getElementById('fs-preview-zoom-pct');
+      if (img) img.style.transform = `translate(${st.panX}px, ${st.panY}px) rotate(${st.rotate}deg) scale(${st.zoom})`;
+      if (pct) pct.textContent = Math.round(st.zoom * 100) + '%';
+    }
+
+    function openFullscreenSupplierPreview(supplierId) {
+      const s = suppliers.find(x => x.id === supplierId);
+      if (!s || !s.sourceFile || !s.sourceFile.type.startsWith('image/')) return;
+      fsPreviewSupplierId = supplierId;
+      const st = getPreviewState(s);
+      st.zoom = 1; st.panX = 0; st.panY = 0; st.rotate = 0;
+      document.getElementById('fs-preview-img').src = s.sourceFile.dataUrl;
+      document.getElementById('fs-preview-name').textContent = s.sourceFile.name || 'Quotation preview';
+      document.getElementById('fs-preview-overlay').classList.add('visible');
+      applyFullscreenSupplierPreview();
+      lucide.createIcons();
+    }
+
+    function closeFullscreenSupplierPreview(e) {
+      if (e) {
+        e.stopPropagation();
+        if (e.target !== e.currentTarget && e.currentTarget.id === 'fs-preview-overlay') return;
+      }
+      document.getElementById('fs-preview-overlay').classList.remove('visible');
+      document.getElementById('fs-preview-stage').classList.remove('dragging');
+      fsPreviewSupplierId = null;
+      fsDragging = false;
+    }
+
+    function zoomFullscreenSupplierPreview(delta, e) {
+      if (e) e.stopPropagation();
+      const s = suppliers.find(x => x.id === fsPreviewSupplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.zoom = Math.min(4, Math.max(1, +(st.zoom + delta).toFixed(2)));
+      if (st.zoom === 1) { st.panX = 0; st.panY = 0; }
+      applyFullscreenSupplierPreview();
+    }
+
+    function rotateFullscreenSupplierPreview(delta, e) {
+      if (e) e.stopPropagation();
+      const s = suppliers.find(x => x.id === fsPreviewSupplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.rotate = (st.rotate + delta + 360) % 360;
+      applyFullscreenSupplierPreview();
+    }
+
+    function resetFullscreenSupplierPreview(e) {
+      if (e) e.stopPropagation();
+      const s = suppliers.find(x => x.id === fsPreviewSupplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.zoom = 1; st.panX = 0; st.panY = 0; st.rotate = 0;
+      applyFullscreenSupplierPreview();
+    }
+
+    function handleFullscreenPreviewWheel(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      zoomFullscreenSupplierPreview(e.deltaY < 0 ? 0.25 : -0.25);
+    }
+
+    function startFullscreenPreviewPan(e) {
+      if (e.button !== 0) return;
+      const s = suppliers.find(x => x.id === fsPreviewSupplierId);
+      if (!s || getPreviewState(s).zoom <= 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const st = getPreviewState(s);
+      fsDragging = true;
+      fsDragStartX = e.clientX - st.panX;
+      fsDragStartY = e.clientY - st.panY;
+      document.getElementById('fs-preview-stage').classList.add('dragging');
+    }
+
+    window.addEventListener('mousemove', e => {
+      if (!fsDragging) return;
+      const s = suppliers.find(x => x.id === fsPreviewSupplierId);
+      if (!s) return;
+      const st = getPreviewState(s);
+      st.panX = e.clientX - fsDragStartX;
+      st.panY = e.clientY - fsDragStartY;
+      applyFullscreenSupplierPreview();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!fsDragging) return;
+      fsDragging = false;
+      document.getElementById('fs-preview-stage').classList.remove('dragging');
+    });
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && fsPreviewSupplierId !== null) closeFullscreenSupplierPreview();
+    });
+
     function toggleSupplierPreviewDblClick(supplierId) {
       const s = suppliers.find(x => x.id === supplierId);
       if (!s) return;
@@ -1285,7 +1505,7 @@ activeSupplierId = id;
               <button class="sp-zoom-btn" onclick="zoomSupplierPreview(${s.id}, -0.25)" title="Zoom out"><i data-lucide="minus" style="width:11px;height:11px;"></i></button>
               <span class="sp-zoom-pct" id="sup-preview-zoom-pct-${s.id}">100%</span>
               <button class="sp-zoom-btn" onclick="zoomSupplierPreview(${s.id}, 0.25)" title="Zoom in"><i data-lucide="plus" style="width:11px;height:11px;"></i></button>
-              <button class="sp-zoom-btn" onclick="resetSupplierPreviewZoom(${s.id})" title="Reset zoom/rotation"><i data-lucide="maximize" style="width:11px;height:11px;"></i></button>
+              <button class="sp-zoom-btn" onclick="openFullscreenSupplierPreview(${s.id})" title="Open full-screen viewer"><i data-lucide="maximize" style="width:11px;height:11px;"></i></button>
             </div>
           </div>`;
       }
@@ -1540,44 +1760,77 @@ activeSupplierId = id;
     interceptNavLinks(); // also run immediately in case DOMContentLoaded already fired
 
     function renderReviewTable() {
-      // Header
-    document.getElementById('review-thead').innerHTML = `<tr>
-        <th>#</th>
-        <th>Description</th>
-        <th>Qty</th>
-        <th>Unit</th>
-        ${suppliers.map((s, i) => `
-          <th class="th-s${i % 5}">${escHtml(s.name || `Supplier ${i+1}`)} — Unit Price</th>
-          <th class="th-s${i % 5}">Total</th>`).join('')}
-        <th></th>
-      </tr>`;
+      const supplierCount = Math.max(suppliers.length, 1);
+      const supplierStyle = `--supplier-count:${supplierCount}`;
+      const supplierHeaders = suppliers.map((s, si) => `
+        <div class="review-supplier-column">
+          <div class="review-supplier-name th-s${si % 5}">Supplier ${si + 1}<br>${escHtml(s.name || 'Unnamed Supplier')}</div>
+          <div class="review-supplier-subheads">
+            <span></span><span>Unit Price</span><span>Total</span>
+          </div>
+        </div>`).join('');
 
-      // Body
-        document.getElementById('review-tbody').innerHTML = reviewRows.map((r, ri) => `
-        <tr data-idx="${ri}">
-          <td style="color:var(--text-3);font-family:var(--font-mono);font-size:11px;">${ri+1}</td>
-          <td><input value="${escHtml(r.desc)}" oninput="reviewRows[${ri}].desc=this.value" style="min-width:180px;" /></td>
-          <td><input value="${escHtml(r.qty)}"  oninput="reviewRows[${ri}].qty=this.value"  style="width:50px;text-align:center;" /></td>
-          <td><input value="${escHtml(r.unit)}" oninput="reviewRows[${ri}].unit=this.value" style="width:50px;text-align:center;" /></td>
-        ${suppliers.map((_,si) => {
-            const val = r[`p${si}`] || '';
-            const noMatch = !val && suppliers.length > 1;
-            return `
-            <td><input type="number" value="${val}" placeholder="${noMatch ? 'Nothing to correlate' : '—'}"
-              class="${noMatch ? 'no-correlate' : ''}"
-              oninput="reviewRows[${ri}]['p${si}']=this.value" style="width:90px;" /></td>
-            <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);" id="tot-${ri}-${si}">
-              ${calcTotal(r[`p${si}`], r.qty)}
-            </td>`;
-          }).join('')}
-          <td>
-            <button onclick="removeReviewRow(${ri})"
-              style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px 5px;">
+      const header = `
+        <div class="review-grid-line">
+          <div class="review-grid-cell review-base-head">Item<br>No.</div>
+          <div class="review-grid-cell review-base-head">Description</div>
+          <div class="review-grid-cell review-base-head">Qty</div>
+          <div class="review-grid-cell review-base-head">Unit</div>
+          <div class="review-grid-cell review-supplier-area" style="${supplierStyle}">${supplierHeaders}</div>
+          <div class="review-grid-cell review-base-head"></div>
+        </div>`;
+
+      const rows = reviewRows.map((r, ri) => `
+        <div class="review-grid-line" data-idx="${ri}">
+          <div class="review-grid-cell review-row-cell review-item-number">${ri + 1}</div>
+          <div class="review-grid-cell review-row-cell">
+            <textarea class="review-cell-input" rows="2"
+              oninput="reviewRows[${ri}].desc=this.value;markDirty()">${escHtml(r.desc)}</textarea>
+          </div>
+          <div class="review-grid-cell review-row-cell">
+            <input class="review-cell-input" value="${escHtml(r.qty)}" inputmode="decimal"
+              oninput="reviewRows[${ri}].qty=this.value;updateReviewRowTotals(${ri});markDirty()" />
+          </div>
+          <div class="review-grid-cell review-row-cell">
+            <input class="review-cell-input" value="${escHtml(r.unit)}"
+              oninput="reviewRows[${ri}].unit=this.value;markDirty()" />
+          </div>
+          <div class="review-grid-cell review-supplier-area" style="${supplierStyle}">
+            ${suppliers.map((_, si) => {
+              const val = r[`p${si}`] || '';
+              const noMatch = !val && suppliers.length > 1;
+              return `
+                <div class="review-supplier-column">
+                  <div class="review-supplier-cells">
+                    <span class="review-price-label">PRICE</span>
+                    <input class="review-cell-input ${noMatch ? 'no-correlate' : ''}" type="number"
+                      value="${escHtml(val)}" placeholder="${noMatch ? 'No match' : '—'}"
+                      oninput="reviewRows[${ri}]['p${si}']=this.value;updateReviewTotal(${ri},${si});markDirty()" />
+                    <div class="review-total" id="tot-${ri}-${si}">${calcTotal(val, r.qty)}</div>
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>
+          <div class="review-grid-cell review-row-cell">
+            <button class="review-remove" onclick="removeReviewRow(${ri})" title="Remove item">
               <i data-lucide="x" style="width:12px;height:12px;"></i>
             </button>
-          </td>
-        </tr>`).join('');
+          </div>
+        </div>`).join('');
+
+      document.getElementById('review-sheet').innerHTML = header + rows
+        + '<div class="review-nothing-follows">**NOTHING FOLLOWS**</div>';
       lucide.createIcons();
+    }
+
+    function updateReviewTotal(rowIndex, supplierIndex) {
+      const row = reviewRows[rowIndex];
+      const total = document.getElementById(`tot-${rowIndex}-${supplierIndex}`);
+      if (row && total) total.textContent = calcTotal(row[`p${supplierIndex}`], row.qty);
+    }
+
+    function updateReviewRowTotals(rowIndex) {
+      suppliers.forEach((_, supplierIndex) => updateReviewTotal(rowIndex, supplierIndex));
     }
 
     function calcTotal(price, qty) {
