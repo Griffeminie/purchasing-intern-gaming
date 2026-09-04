@@ -111,6 +111,20 @@ function getCanvassDir() {
   }
 }
 
+// Excel creates a temporary `~$...xlsx` owner/lock file beside a workbook
+// while it is open. Check this before the append workflow starts so we do not
+// build a canvass and then fail while saving the department workbook.
+function workbookLockPath(workbookPath) {
+  return path.join(
+    path.dirname(workbookPath),
+    `~$${path.basename(workbookPath)}`,
+  );
+}
+
+function isWorkbookInUse(workbookPath) {
+  return fs.existsSync(workbookLockPath(workbookPath));
+}
+
 // ── Gemini config (server-side only — never sent to the browser) ────────────
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
 function getGeminiKey() {
@@ -615,43 +629,6 @@ app.post("/api/sheet/:name/add", (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Last Purchase lookup (for canvass "Add Last Purchase" per item) ─────────
-// GET /api/purchase-history/search?q=some text
-// Searches item description, supplier name, and PO number across ALL months.
-// Returns only the 4 fields the canvass lookup popup needs.
-app.get("/api/purchase-history/search", (req, res) => {
-  try {
-    const q = (req.query.q || "").trim();
-    let rows;
-    if (q) {
-      rows = db.prepare(`
-        SELECT po_date, supplier_name, po_number, unit_price
-        FROM purchase_orders
-        WHERE item_description LIKE ? OR supplier_name LIKE ? OR po_number LIKE ?
-        ORDER BY po_date DESC
-        LIMIT 50
-      `).all(`%${q}%`, `%${q}%`, `%${q}%`);
-    } else {
-      rows = db.prepare(`
-        SELECT po_date, supplier_name, po_number, unit_price
-        FROM purchase_orders
-        ORDER BY po_date DESC
-        LIMIT 50
-      `).all();
-    }
-    res.json({
-      results: rows.map(r => ({
-        poDate:    r.po_date || "",
-        supplier:  r.supplier_name || "",
-        poNumber:  r.po_number || "",
-        unitPrice: r.unit_price ?? "",
-      })),
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 app.put("/api/row/:id", (req, res) => {
   try {
     const id    = parseInt(req.params.id);
@@ -868,6 +845,11 @@ app.post("/api/canvass/export", async (req, res) => {
     if (!fs.existsSync(resolvedTarget)) {
       return res.status(404).json({ error: `Workbook not found: ${resolvedTarget}` });
     }
+    if (isWorkbookInUse(resolvedTarget)) {
+      return res.status(423).json({
+        error: `Cannot add the canvass because "${fileName}" is currently open in Excel or being used by another person. Close the workbook and try again.`,
+      });
+    }
   }
 
   const tmpJson = path.join(os.tmpdir(), `canvass_${Date.now()}.json`);
@@ -912,6 +894,15 @@ app.post("/api/canvass/export", async (req, res) => {
   } catch (e) {
     try { fs.unlinkSync(tmpJson); } catch(_) {}
     try { if (appendMode) fs.unlinkSync(scratchOut); } catch(_) {}
+    // The workbook may have been opened after the preflight check, so also
+    // translate a save-time sharing/permission failure into the same clear
+    // user-facing error instead of exposing Python's raw traceback.
+    const lockFailure = appendMode && /permission denied|being used by another process|sharing violation|access is denied|locked/i.test(e.message || "");
+    if (lockFailure) {
+      return res.status(423).json({
+        error: `Cannot add the canvass because "${path.basename(resolvedTarget)}" is currently open in Excel or being used by another person. Close the workbook and try again.`,
+      });
+    }
     res.status(500).json({ error: e.message });
   }
 });

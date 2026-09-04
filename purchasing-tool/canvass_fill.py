@@ -314,7 +314,12 @@ def copy_sheet_into_workbook(src_ws, dst_wb, sheet_name):
     """Manually clones src_ws (values, styles, merges, row/col sizing) into
     a brand-new sheet inside dst_wb. openpyxl worksheets belong to exactly
     one workbook, so there's no built-in 'move this sheet to another file' —
-    everything has to be copied cell by cell instead of the object moved."""
+    everything has to be copied cell by cell instead of the object moved.
+
+    Images are copied explicitly as well. They are not cells, so the cell/
+    style/merge copy below does not carry over the logo or other template
+    artwork when exporting into an existing workbook.
+    """
     name = unique_sheet_name(dst_wb, sheet_name)
     dst_ws = dst_wb.create_sheet(title=name)  # created at the end by default
 
@@ -339,6 +344,15 @@ def copy_sheet_into_workbook(src_ws, dst_wb, sheet_name):
     for idx, dim in src_ws.row_dimensions.items():
         if dim.height:
             dst_ws.row_dimensions[idx].height = dim.height
+
+    # Worksheet images live outside the cell grid and are therefore omitted
+    # by the loops above. Clone both the image and its anchor so the source
+    # template remains untouched and the artwork keeps its original
+    # position/size in the appended sheet.
+    for image in getattr(src_ws, "_images", []):
+        cloned_image = copy.copy(image)
+        cloned_image.anchor = copy.copy(image.anchor)
+        dst_ws.add_image(cloned_image)
 
     # create_sheet() already appends at the end, but move it explicitly so
     # this stays correct even if a same-named "(2)" tab gets re-added later.
@@ -479,15 +493,6 @@ def main():
         ws.cell(row=r, column=2).value  = desc                                     # Description (B, merged to D)
         ws.cell(row=r, column=5).value  = qty_num if qty_num is not None else qty  # QTY as real number
         ws.cell(row=r, column=6).value  = unit                                     # UNIT
-
-        # Reference Only (Last Purchase) — columns H (Unit Price) and I
-        # (Date), one per item row, sitting to the left of every supplier
-        # price block. Column J is the decorative vertical bar next to it
-        # and is never written to directly.
-        last_price = item.get("lastPrice", "")
-        last_price_num = to_number(last_price)
-        ws.cell(row=r, column=8).value = last_price_num if last_price_num is not None else last_price
-        ws.cell(row=r, column=9).value = item.get("lastDate", "")
 
         for i in range(n_sup):
             label_col, price_col, total_col = supplier_cols(i)

@@ -253,9 +253,6 @@
     .unsaved-modal p  { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 22px; }
     .unsaved-actions  { display: flex; gap: 10px; justify-content: center; }
     .unsaved-actions .cbtn { flex: 1; justify-content: center; }
-    .lp-cell { min-width:150px; }
-    .lp-inputs { display:flex; gap:4px; align-items:center; }
-    .lp-inputs input { width:60px !important; min-width:0 !important; }
     .lp-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:2100; opacity:0; pointer-events:none; transition:opacity .2s ease; }
     .lp-overlay.visible { opacity:1; pointer-events:auto; }
     .lp-modal { background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:18px; width:90%; max-width:600px; max-height:75vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.4); }
@@ -312,23 +309,6 @@
   </div>
 
 <div class="toast-container" id="toasts"></div>
-<div class="lp-overlay" id="lp-overlay">
-    <div class="lp-modal">
-      <div class="lp-header">
-        <div class="lp-title"><i data-lucide="history" style="width:15px;height:15px;"></i> Last Purchase Lookup</div>
-        <button class="lp-close" onclick="closeLastPurchaseModal()"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
-      </div>
-      <div class="lp-toolbar">
-        <input type="text" id="lp-search-input" class="f-input" placeholder="Search item, supplier, or PO number…" oninput="debouncedLpSearch()" />
-      </div>
-      <div class="lp-list">
-        <div class="lp-row-head">
-          <span>PO Date</span><span>Supplier</span><span>PO Number</span><span style="text-align:right;">Unit Price</span>
-        </div>
-        <div id="lp-results"></div>
-      </div>
-    </div>
-  </div>
   <div class="page-wrap">
 
     <div class="lp-overlay" id="fb-overlay">
@@ -491,7 +471,7 @@
         </div>
 
         <div class="action-bar">
-          <button class="cbtn cbtn-ghost" onclick="if(confirm('Start over?')) location.reload()">
+          <button class="cbtn cbtn-ghost" onclick="startOver()">
             <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> Start Over
           </button>
           <button class="cbtn cbtn-primary" id="export-btn" onclick="exportToTemplate()">
@@ -504,10 +484,10 @@
     <!-- Debug: raw AI response -->
 <div id="debug-wrap" style="display:none;" class="c-card">
       <div class="c-card-title">
-        <div class="c-card-title-left"><i data-lucide="terminal" style="width:14px;height:14px;"></i> Raw AI Response</div>
+        <div class="c-card-title-left"><i data-lucide="code" style="width:14px;height:14px;"></i> JSON Prompt &amp; Response</div>
         <div style="display:flex;gap:6px;">
           <button class="cbtn cbtn-ghost cbtn-sm" onclick="toggleManualJsonPanel()" title="Paste your own extraction JSON instead of calling Gemini">
-            <i data-lucide="pencil" style="width:12px;height:12px;"></i> Edit
+            <i data-lucide="pencil" style="width:12px;height:12px;"></i> Edit JSON
           </button>
           <button class="cbtn cbtn-ghost cbtn-sm" onclick="document.getElementById('debug-wrap').style.display='none'">Hide</button>
         </div>
@@ -515,20 +495,29 @@
 
       <div id="manual-json-panel" style="display:none;margin-bottom:12px;">
         <div style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-bottom:6px;">
-          Paste a single supplier's JSON (same shape Gemini returns) to create/update a supplier tab without calling the API.
+          Use this prompt with another AI agent to extract quotation data from an image, then paste its JSON response below.
         </div>
-        <textarea id="manual-json-input" class="f-input" rows="10" spellcheck="false"
-          style="font-family:var(--font-mono);font-size:11px;resize:vertical;width:100%;box-sizing:border-box;"
-          placeholder='{"supplierName":"","location":"","contactPerson":"","contactNumber":"","items":[{"itemNo":"","description":"","qty":"","unit":"","unitPrice":"","total":""}],"deliveryCharge":"","discount":"","grandTotal":"","creditTerms":"","vat":"","availability":"","deliveryAddress":""}'></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <input class="f-input" type="text" id="manual-json-label" placeholder="Supplier/file label (optional)" style="max-width:240px;" />
+        <div style="position:relative;margin-bottom:10px;">
+          <textarea id="gemini-prompt-display" class="f-input" rows="10" readonly spellcheck="false"
+            style="font-family:var(--font-mono);font-size:11px;resize:vertical;width:100%;box-sizing:border-box;padding-right:42px;"></textarea>
+          <button class="btn-icon" onclick="copyGeminiPrompt()" title="Copy extraction prompt"
+            style="position:absolute;right:8px;top:8px;background:var(--bg-3);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text-2);padding:5px;">
+            <i data-lucide="copy" style="width:13px;height:13px;"></i>
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-bottom:6px;">
+          Paste one supplier's JSON response in this same field. Existing Gemini output will be replaced when you open Paste JSON.
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;">
           <button class="cbtn cbtn-amber cbtn-sm" onclick="loadManualJson()">
             <i data-lucide="upload" style="width:12px;height:12px;"></i> Load as Supplier
           </button>
         </div>
       </div>
 
-      <pre id="raw-output" class="raw-box visible" style="max-height:300px;"></pre>
+      <textarea id="json-editor" class="raw-box visible" rows="12" spellcheck="false"
+        style="display:block;width:100%;box-sizing:border-box;resize:vertical;"
+        placeholder='Gemini responses or manually pasted JSON will appear here.'></textarea>
     </div>
 
   </div><!-- /page-wrap -->
@@ -741,8 +730,8 @@ const retryBtn = f.status === 'error'
     }
 
     function appendRawOutput(label, obj) {
-      const el = document.getElementById('raw-output');
-      el.textContent += `── ${label} ──\n${JSON.stringify(obj, null, 2)}\n\n`;
+      const el = document.getElementById('json-editor');
+      el.value += `── ${label} ──\n${JSON.stringify(obj, null, 2)}\n\n`;
     }
 
     // ── Extract all ──────────────────────────────────────────────────────────
@@ -760,7 +749,7 @@ const retryBtn = f.status === 'error'
 
       const pending = uploadedFiles.filter(f => f.status === 'pending' && f.b64);
       let doneCount = 0;
-      document.getElementById('raw-output').textContent = ''; // reset accumulator for this batch
+      document.getElementById('json-editor').value = ''; // reset accumulator for this batch
 
       for (const file of pending) {
         file.status = 'scanning';
@@ -919,16 +908,36 @@ activeSupplierId = id;
   function toggleManualJsonPanel() {
       const panel = document.getElementById('manual-json-panel');
       panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+      if (panel.style.display === 'block') {
+        document.getElementById('gemini-prompt-display').value = GEMINI_PROMPT.trim();
+        lucide.createIcons();
+      }
     }
 
     // Opens the debug card + JSON panel directly, without needing to run a real extraction first
     function openManualJsonDebug() {
       document.getElementById('debug-wrap').style.display = 'block';
       document.getElementById('manual-json-panel').style.display = 'block';
+      document.getElementById('gemini-prompt-display').value = GEMINI_PROMPT.trim();
+      document.getElementById('json-editor').value = '';
       document.getElementById('debug-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      lucide.createIcons();
+    }
+
+    async function copyGeminiPrompt() {
+      const prompt = document.getElementById('gemini-prompt-display').value;
+      try {
+        await navigator.clipboard.writeText(prompt);
+        toast('Extraction prompt copied.', 'success');
+      } catch (e) {
+        const field = document.getElementById('gemini-prompt-display');
+        field.focus();
+        field.select();
+        toast('Prompt selected — press Ctrl+C to copy.', 'success');
+      }
     }
     function loadManualJson() {
-      const raw = document.getElementById('manual-json-input').value.trim();
+      const raw = document.getElementById('json-editor').value.trim();
       if (!raw) { toast('Paste some JSON first.', 'error'); return; }
 
       let parsed;
@@ -939,11 +948,11 @@ activeSupplierId = id;
         return;
       }
 
-      const label = document.getElementById('manual-json-label').value.trim() || `Manual Entry ${suppliers.length + 1}`;
+      const label = parsed.supplierName || `Manual Entry ${suppliers.length + 1}`;
       const fakeFile = { name: label, dataUrl: null, type: 'manual/json' };
       const cleaned = deepCleanStrings(parsed);
 
-      appendRawOutput(label + ' (manual)', cleaned);
+      document.getElementById('json-editor').value = JSON.stringify(cleaned, null, 2);
       createSupplierFromResult(fakeFile, cleaned);
 
       document.getElementById('suppliers-card').style.display = 'block';
@@ -1453,7 +1462,7 @@ activeSupplierId = id;
           const displayName = it.description.trim();
           const key = displayName.toUpperCase(); // case-insensitive grouping
           if (!descMap.has(key)) {
-            const row = { desc:displayName, qty:it.qty||'1', unit:it.unit||'pce', lastPrice:'', lastDate:'' };
+            const row = { desc:displayName, qty:it.qty||'1', unit:it.unit||'pce' };
             suppliers.forEach((_,i) => row[`p${i}`] = '');
             descMap.set(key, row);
           }
@@ -1474,6 +1483,21 @@ activeSupplierId = id;
 
     // ── Custom unsaved-changes modal for in-app navigation ─────────────────────
     let pendingNavUrl = null;
+    let pendingLeaveAction = null;
+
+    function startOver() {
+      if (!hasUnsavedChanges) {
+        location.reload();
+        return;
+      }
+
+      // Reuse the same confirmation modal used by page navigation so the
+      // current canvass cannot be discarded through the browser's native
+      // confirm dialog.
+      pendingNavUrl = null;
+      pendingLeaveAction = 'reload';
+      showUnsavedModal();
+    }
 
     function interceptNavLinks() {
       document.querySelectorAll('.topnav nav a').forEach(link => {
@@ -1495,11 +1519,21 @@ activeSupplierId = id;
     function cancelLeave() {
       document.getElementById('unsaved-overlay').classList.remove('visible');
       pendingNavUrl = null;
+      pendingLeaveAction = null;
     }
 
     function confirmLeave() {
       hasUnsavedChanges = false; // prevent beforeunload from also firing
-      if (pendingNavUrl) window.location.href = pendingNavUrl;
+      const navUrl = pendingNavUrl;
+      const action = pendingLeaveAction;
+      pendingNavUrl = null;
+      pendingLeaveAction = null;
+
+      if (action === 'reload') {
+        location.reload();
+      } else if (navUrl) {
+        window.location.href = navUrl;
+      }
     }
 
     document.addEventListener('DOMContentLoaded', interceptNavLinks);
@@ -1512,7 +1546,6 @@ activeSupplierId = id;
         <th>Description</th>
         <th>Qty</th>
         <th>Unit</th>
-        <th>Last Purchase</th>
         ${suppliers.map((s, i) => `
           <th class="th-s${i % 5}">${escHtml(s.name || `Supplier ${i+1}`)} — Unit Price</th>
           <th class="th-s${i % 5}">Total</th>`).join('')}
@@ -1526,17 +1559,6 @@ activeSupplierId = id;
           <td><input value="${escHtml(r.desc)}" oninput="reviewRows[${ri}].desc=this.value" style="min-width:180px;" /></td>
           <td><input value="${escHtml(r.qty)}"  oninput="reviewRows[${ri}].qty=this.value"  style="width:50px;text-align:center;" /></td>
           <td><input value="${escHtml(r.unit)}" oninput="reviewRows[${ri}].unit=this.value" style="width:50px;text-align:center;" /></td>
-          <td class="lp-cell">
-            <div class="lp-inputs">
-              <input value="${escHtml(r.lastPrice||'')}" placeholder="Price"
-                oninput="reviewRows[${ri}].lastPrice=this.value" title="Last purchase unit price — editable manually or via lookup" />
-              <input value="${escHtml(r.lastDate||'')}" placeholder="Date"
-                oninput="reviewRows[${ri}].lastDate=this.value" title="Last purchase date — editable manually or via lookup" />
-              <button class="btn-icon" onclick="openLastPurchaseModal(${ri})" title="Look up last purchase" style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px;">
-                <i data-lucide="search" style="width:12px;height:12px;"></i>
-              </button>
-            </div>
-          </td>
         ${suppliers.map((_,si) => {
             const val = r[`p${si}`] || '';
             const noMatch = !val && suppliers.length > 1;
@@ -1557,67 +1579,6 @@ activeSupplierId = id;
         </tr>`).join('');
       lucide.createIcons();
     }
-
-    // ── Last Purchase lookup modal ───────────────────────────────────────────
-    let lpTargetRow  = null;
-    let lpResults    = [];
-    let lpDebounce   = null;
-
-    function openLastPurchaseModal(rowIndex) {
-      lpTargetRow = rowIndex;
-      document.getElementById('lp-overlay').classList.add('visible');
-      const search = document.getElementById('lp-search-input');
-      search.value = reviewRows[rowIndex].desc || '';
-      runLpSearch();
-    }
-
-    function closeLastPurchaseModal() {
-      document.getElementById('lp-overlay').classList.remove('visible');
-      lpTargetRow = null;
-    }
-
-    function debouncedLpSearch() {
-      clearTimeout(lpDebounce);
-      lpDebounce = setTimeout(runLpSearch, 300);
-    }
-
-    async function runLpSearch() {
-      const list = document.getElementById('lp-results');
-      const q = document.getElementById('lp-search-input').value.trim();
-      list.innerHTML = `<div class="lp-loading">Searching…</div>`;
-      try {
-        const resp = await fetch(`/api/purchase-history/search?q=${encodeURIComponent(q)}`);
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error);
-        lpResults = data.results || [];
-
-        if (!lpResults.length) {
-          list.innerHTML = `<div class="lp-empty">No matching purchase history found.</div>`;
-          return;
-        }
-        list.innerHTML = lpResults.map((r, i) => `
-          <div class="lp-row" onclick="selectLastPurchase(${i})">
-            <span>${escHtml(r.poDate || '—')}</span>
-            <span>${escHtml(r.supplier || '—')}</span>
-            <span>${escHtml(r.poNumber || '—')}</span>
-            <span class="lp-col-price">${r.unitPrice !== '' ? '₱' + Number(r.unitPrice).toLocaleString('en-PH', {minimumFractionDigits:2}) : '—'}</span>
-          </div>`).join('');
-      } catch (e) {
-        list.innerHTML = `<div class="lp-empty">Search failed: ${escHtml(e.message)}</div>`;
-      }
-    }
-
-    function selectLastPurchase(i) {
-      const record = lpResults[i];
-      if (lpTargetRow === null || !record) return;
-      reviewRows[lpTargetRow].lastPrice = record.unitPrice !== '' ? String(record.unitPrice) : '';
-      reviewRows[lpTargetRow].lastDate  = record.poDate || '';
-      closeLastPurchaseModal();
-      renderReviewTable();
-      toast('Last purchase applied to this item.', 'success');
-    }
-
-
 
     function calcTotal(price, qty) {
       const p = parseFloat(String(price).replace(/[^0-9.]/g,''));
@@ -1646,7 +1607,7 @@ activeSupplierId = id;
     }
 
     function addReviewRow() {
-      const row = { desc:'', qty:'1', unit:'pce', lastPrice:'', lastDate:'' };
+      const row = { desc:'', qty:'1', unit:'pce' };
       suppliers.forEach((_,i) => row[`p${i}`] = '');
       reviewRows.push(row);
       renderReviewTable();
@@ -1804,7 +1765,6 @@ activeSupplierId = id;
         remarks: document.getElementById('remarks').value,
         items: reviewRows.map(r => ({
           desc: r.desc, qty: r.qty, unit: r.unit,
-          lastPrice: r.lastPrice || '', lastDate: r.lastDate || '',
           ...Object.fromEntries(suppliers.map((_,i) => [`p${i+1}`, r[`p${i}`] || ''])),
         })),
         suppliers: suppliers.map(s => ({
